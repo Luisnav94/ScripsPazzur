@@ -1,9 +1,16 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 17)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 18)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v18
+--   - Cambio de set instantaneo otra vez: la devolucion de la pieza
+--     a su mochila ahora espera a que termine el cambio (antes metia
+--     movimientos en medio y lo hacia lento). Reintentos mas rapidos.
+--   - Sin letras amarillas al cambiar: el estado de Anillo y Amuleto
+--     solo avisa de problemas reales (item no encontrado, mochila llena).
 --
 --  CAMBIOS v17
 --   - Equipo: la pieza que se quita al cambiar de set vuelve a la
@@ -254,7 +261,7 @@ function Prof.name() return "Knight" end
 
 local EquipCore = {}
 do
-  local RETRY_MS, HOTKEY_RETRY, HOTKEY_MAX = 250, 800, 2
+  local RETRY_MS, HOTKEY_RETRY, HOTKEY_MAX = 150, 800, 2
   local HOTKEY_RESET = 30000
   local OPEN_DELAY, MAX_OPEN = 700, 10
   local OWN_MS = 1500   -- cambios dentro de este tiempo los hizo el script
@@ -262,6 +269,7 @@ do
   local alias, pending, hotkeyTries, nextTry = {}, {}, {}, {}
   local ownMove, lastSeen, manualUntil = {}, {}, {}
   local opener = {last = -1000000, tried = {}}
+  local lastAction = -1000000   -- ultimo movimiento de equipo enviado
 
   local function isEquipped(cur, id)
     if not cur then return false end
@@ -324,7 +332,9 @@ do
   --  Una sola opcion para todos (storage.equipKeepBag).
   -- -------------------------------------------------------------------
   local giveBack, keepBoxes = {}, {}
-  local GB_WAIT, GB_STEP, GB_LOOK, GB_MOVES = 4000, 300, 8, 2
+  -- GB_IDLE: la devolucion espera a que TERMINE el cambio de set, para
+  -- no meter movimientos extra en medio (eso hacia el cambio lento).
+  local GB_WAIT, GB_STEP, GB_LOOK, GB_MOVES, GB_IDLE = 10000, 300, 8, 2, 500
 
   function EquipCore.keepBag() return storage.equipKeepBag ~= false end
 
@@ -366,6 +376,7 @@ do
       return
     end
     if now < g.nextAt then return end
+    if now - lastAction < GB_IDLE then return end   -- set aun cambiando
     g.nextAt = now + GB_STEP
 
     local src = g_game.getContainer(g.cid)
@@ -442,6 +453,7 @@ do
       local method = (n - 1) % 3
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
+      lastAction = now
 
       local srcCid = containerOf(item)
       if EquipCore.keepBag() and srcCid and cur and prevId > 0
@@ -490,6 +502,7 @@ do
       local ok = pcall(function() g_game.equipItemId(id, 0) end)
       if ok then
         hotkeyTries[id] = {n = (ht and ht.n or 0) + 1, t = now}
+        lastAction = now
         pending[slot] = {id = id, t = now, prevId = prevId}
         ownMove[slot] = now
         nextTry[slot] = now + HOTKEY_RETRY
@@ -2965,12 +2978,16 @@ RingAmuletV2Window < MainWindow
     else
       txt, color = "NORMAL", "#66ff66"
     end
+    -- Solo se avisa de problemas reales (sin letras amarillas al cambiar)
+    local function problem(r)
+      return r and (r:find("^no esta") or r:find("^mochila llena"))
+    end
     local rr = EquipCore.reason[SlotFinger]
     local ra = EquipCore.reason[SlotNeck]
-    if rr and rr ~= "OK" and rr ~= "casilla vacia" then
-      txt, color = txt .. " | Anillo: " .. rr, "#ffcc66"
-    elseif ra and ra ~= "OK" and ra ~= "casilla vacia" then
-      txt, color = txt .. " | Amuleto: " .. ra, "#ffcc66"
+    if problem(rr) then
+      txt, color = txt .. " | Anillo: " .. rr, "#ff6666"
+    elseif problem(ra) then
+      txt, color = txt .. " | Amuleto: " .. ra, "#ff6666"
     end
     setStatus(txt, color)
 
