@@ -11,6 +11,10 @@
 --     movimientos en medio y lo hacia lento). Reintentos mas rapidos.
 --   - Sin letras amarillas al cambiar: el estado de Anillo y Amuleto
 --     solo avisa de problemas reales (item no encontrado, mochila llena).
+--   - Quitado el aviso amarillo "[Equipo] No se pudo poner el ID".
+--   - El cambio es UN solo movimiento directo (como antes): ya no
+--     prueba equipar por hotkey ni desequipar primero, que hacia
+--     "desequipa y equipa" y perdia tiempo.
 --
 --  CAMBIOS v17
 --   - Equipo: la pieza que se quita al cambiar de set vuelve a la
@@ -261,7 +265,7 @@ function Prof.name() return "Knight" end
 
 local EquipCore = {}
 do
-  local RETRY_MS, HOTKEY_RETRY, HOTKEY_MAX = 150, 800, 2
+  local RETRY_MS, HOTKEY_RETRY, HOTKEY_MAX = 600, 800, 2
   local HOTKEY_RESET = 30000
   local OPEN_DELAY, MAX_OPEN = 700, 10
   local OWN_MS = 1500   -- cambios dentro de este tiempo los hizo el script
@@ -445,12 +449,10 @@ do
     nextTry[slot] = now + RETRY_MS
     local prevId = cur and cur:getId() or 0
 
-    -- 1) Item en mochila abierta: prueba 3 metodos por turnos
+    -- 1) Item en mochila abierta: un solo movimiento directo
     local item = findItem(id)
     if item then
       fails[slot] = (fails[slot] or 0) + 1
-      local n = fails[slot]
-      local method = (n - 1) % 3
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
       lastAction = now
@@ -462,40 +464,17 @@ do
                           nextAt = now + GB_STEP, looks = 0, moves = 0}
       end
 
-      if method == 0 then
-        g_game.move(item, slotPos(slot), moveCount(item))
-        EquipCore.reason[slot] = "moviendo " .. id
-      elseif method == 1 then
-        local ok = pcall(function() g_game.equipItem(item) end)
-        if not ok and g_game.equipItemId then
-          pcall(function() g_game.equipItemId(id, 0) end)
-        end
-        EquipCore.reason[slot] = "equipando " .. id
-      else
-        if cur then
-          local dest = freeContainerPos(EquipCore.keepBag() and srcCid or nil)
-          if dest then
-            g_game.move(cur, dest, moveCount(cur))
-            EquipCore.reason[slot] = "liberando slot"
-          else
-            g_game.move(item, slotPos(slot), moveCount(item))
-            EquipCore.reason[slot] = "mochila llena"
-          end
-        else
-          g_game.move(item, slotPos(slot), moveCount(item))
-          EquipCore.reason[slot] = "moviendo " .. id
-        end
-      end
-
-      if n >= 6 and not warned[slot] then
-        warned[slot] = true
-        warn("[Equipo] No se pudo poner el ID " .. id .. " en el slot " .. slot ..
-             ". Revisa que sea el ID correcto (arrastra el item a la casilla).")
-      end
+      -- Cambio directo: se arrastra la pieza nueva encima de la vieja
+      -- y el servidor las intercambia de una vez (sin desequipar antes).
+      g_game.move(item, slotPos(slot), moveCount(item))
+      EquipCore.reason[slot] = "moviendo " .. id
       return false
     end
 
     -- 2) Hotkey del servidor (mochilas cerradas)
+    --    Nunca justo despues de mover: el hotkey desequipa si el item
+    --    ya esta puesto y el servidor aun no lo confirmo.
+    if now - (ownMove[slot] or -1000000) < OWN_MS then return false end
     local ht = hotkeyTries[id]
     if ht and now - ht.t > HOTKEY_RESET then ht = nil; hotkeyTries[id] = nil end
     if g_game.equipItemId and (not ht or ht.n < HOTKEY_MAX) then
