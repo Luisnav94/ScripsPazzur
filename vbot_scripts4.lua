@@ -1,9 +1,26 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 18)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 20)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v20
+--   - Quitado el contador de pociones del Kina War Healer.
+--   - Equipo Auto modo PK: no pone defensa por PK estando en PZ.
+--   - Alarma PK: no avisa si TU tienes skull, y manda un solo mensaje
+--     por PK (no se repite mientras siga en pantalla; vuelve a avisar
+--     solo si se fue mas de 5 min y regresa).
+--
+--  CAMBIOS v19
+--   - Equipo Auto: nuevo modo "PK" (boton Modo: WAR -> CAVE -> PK).
+--     Usa los valores de HP / caida de WAR y ademas pone el set de
+--     defensa si hay en pantalla un jugador con calavera blanca, roja
+--     o negra (los de tu party se ignoran). Mantiene la defensa
+--     mientras el PK siga en pantalla y "Mantener defensa" despues.
+--   - NUEVO "Alarma PK" (pestana HP): sonido cada 3 s mientras haya
+--     un PK en pantalla y aviso por Telegram (en el celular vibra y
+--     enciende la pantalla). Boton "Probar" para comprobarlo.
 --
 --  CAMBIOS v18
 --   - Cambio de set instantaneo otra vez: la devolucion de la pieza
@@ -28,6 +45,10 @@
 --     movimiento + 1 en espera. Ahora van 2 piezas en camino y apenas
 --     el servidor confirma una sale la siguiente (antes armadura y
 --     casco entraban rapido y el resto esperaba reintentos).
+--   - Kina War Healer: contador de pociones debajo del panel (vida,
+--     Inmortal, Recovery, Adrenalina). Cuenta tambien las de mochilas
+--     cerradas (usa el total que manda el servidor al usar una).
+--     Solo lee, no toca el healer.
 --   - El cambio es UN solo movimiento directo (como antes): ya no
 --     prueba equipar por hotkey ni desequipar primero, que hacia
 --     "desequipa y equipa" y perdia tiempo.
@@ -117,14 +138,14 @@
 --   2. MAIN  - Smart Imbue (ventana, + escudo y backpack)
 --   3. HP    - War Healer (ventana)
 --              Anillo y Amuleto (ventana, UNICO script de anillo/SSA)
---              Equipo Auto (ventana, set completo)
+--              Equipo Auto (ventana, set completo, modos WAR/CAVE/PK)
 --   4. TOOLS - Buff de ataque (ventana), War Chase, Autosell
 --   5. CAVE  - Dynamic Lure (ventana)
 --   6. HP    - Party Support (UH, mana y hechizo para amigos)
 --   7. TOOLS - Safe Anti-Push (monedas / comida)
 --   8. CAVE  - Attack Bot (todas las profesiones)
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
---  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer
+--  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -270,7 +291,42 @@ local Shared = {
   lastFriendHeal = -1000000,   -- ultimo hechizo de curar a un amigo
   friendWantAt   = -1000000,   -- un amigo necesita hechizo (Party Support)
   friendWantHp   = 100,
+  -- Ultimo item usado por los scripts (para el contador de pociones)
+  lastUseId      = 0,
+  lastUseAt      = -1000000,
 }
+
+-- Jugadores con calavera blanca, roja o negra en pantalla (sin contar
+-- los de tu party). Lo usan "Equipo Auto" (modo PK) y "Alarma PK".
+local PK_SKULLS = {[SkullWhite or 3] = true, [SkullRed or 4] = true, [SkullBlack or 5] = true}
+function Shared.pkList()
+  local res = {}
+  for _, spec in ipairs(getSpectators()) do
+    if spec:isPlayer() and not spec:isLocalPlayer() then
+      local ok, sk = pcall(function() return spec:getSkull() end)
+      if ok and PK_SKULLS[sk] then
+        local okp, party = pcall(function() return spec:isPartyMember() end)
+        if not (okp and party) then table.insert(res, spec) end
+      end
+    end
+  end
+  return res
+end
+
+-- Estoy en zona protegida (PZ)?
+function Shared.inPz()
+  local ok, res = pcall(function()
+    if isInPz then return isInPz() end
+    return player:hasState((PlayerStates and PlayerStates.Pz) or 16384)
+  end)
+  return ok and res == true
+end
+
+-- Tengo yo calavera blanca, roja o negra?
+function Shared.iAmPk()
+  local ok, sk = pcall(function() return player:getSkull() end)
+  return ok and PK_SKULLS[sk] == true
+end
 
 -- Perfil de profesion (se llena en la seccion 0)
 local Prof = {appliers = {}}
@@ -2601,6 +2657,7 @@ WarHealerWindow < MainWindow
       if id then
         useWith(id, player)
         lastPotion = now; Shared.lastSelfPotion = now
+        Shared.lastUseId, Shared.lastUseAt = id, now
         if guess then
           action("Pocion " .. idx .. " (no la veo en mochilas abiertas)", "#ffcc66")
         else
@@ -2611,6 +2668,7 @@ WarHealerWindow < MainWindow
         if (m.id or 0) > 0 and mp and mp <= (m.mp or 0) then
           useWith(m.id, player)
           lastPotion = now; Shared.lastSelfPotion = now
+          Shared.lastUseId, Shared.lastUseAt = m.id, now
           action("Pocion de mana", "#88ccff")
         end
       end
@@ -3097,6 +3155,8 @@ end
 -- botas, anillo, ammo y escudo)
 -- Si "Anillo y Amuleto" esta activo, este script NO toca anillo
 -- ni amuleto (se los deja a ese script).
+-- Modos: WAR, CAVE y PK (PK = valores de WAR + defensa si hay un
+-- jugador con calavera blanca, roja o negra en pantalla).
 -- ============================================================
 do
   local EK           = "equipAutoV2"
@@ -3130,7 +3190,7 @@ do
     }
   end
   local ec = storage[EK]
-  if ec.mode ~= "war" and ec.mode ~= "cave" then ec.mode = "war" end
+  if ec.mode ~= "war" and ec.mode ~= "cave" and ec.mode ~= "pk" then ec.mode = "war" end
   ec.war, ec.cave = ec.war or {hp = 71, drop = 15}, ec.cave or {hp = 61, drop = 25}
   ec.attack, ec.defense = ec.attack or {}, ec.defense or {}
   ec.attackHp, ec.holdSec = ec.attackHp or 91, ec.holdSec or 5
@@ -3247,7 +3307,7 @@ EquipAutoWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
-    text: Arrastra los items a cada casilla. Casilla vacia = ese slot no se toca. Si 'Anillo y Amuleto' esta activo, aqui no se cambian anillo ni amuleto.
+    text: Arrastra los items a cada casilla. Casilla vacia = ese slot no se toca. Si 'Anillo y Amuleto' esta activo, aqui no se cambian anillo ni amuleto. Modo PK = valores de WAR + defensa si hay un PK (calavera blanca, roja o negra) en pantalla.
 
   HorizontalSeparator
     id: sep1
@@ -3495,8 +3555,9 @@ EquipAutoWindow < MainWindow
     eUI.modeBtn:setText(txt)
     eWin.modeBtn:setText(txt)
   end
+  local NEXT_MODE = {war = "cave", cave = "pk", pk = "war"}
   local function toggleMode()
-    ec.mode = (ec.mode == "war") and "cave" or "war"
+    ec.mode = NEXT_MODE[ec.mode] or "war"
     updateMode()
   end
   updateMode()
@@ -3559,6 +3620,7 @@ EquipAutoWindow < MainWindow
     if not ec.enabled or not g_game.isOnline() then return end
     local hp = hppercent()
     if not hp then return end
+    -- El modo PK usa los valores de HP / caida de WAR
     local m = ec[ec.mode] or ec.war
 
     local manualDef = false
@@ -3574,14 +3636,17 @@ EquipAutoWindow < MainWindow
       defenseUntil = now + math.max(ec.manualSec or 0, ec.holdSec) * 1000
     end
 
-    if hp <= m.hp or burstDetected(hp, m.drop) then
+    local pk = nil
+    if ec.mode == "pk" and not Shared.inPz() then pk = Shared.pkList()[1] end
+
+    if pk or hp <= m.hp or burstDetected(hp, m.drop) then
       inDefense = true
       defenseUntil = now + ec.holdSec * 1000
       samples = {}
     end
 
     if inDefense then
-      setStatus("DEFENSA", "#ff8866")
+      setStatus(pk and ("DEFENSA (PK: " .. (pk:getName() or "?") .. ")") or "DEFENSA", "#ff8866")
       equip(ec.defense, true)
       if now < defenseUntil or hp < ec.attackHp then return end
       inDefense = false
@@ -4915,13 +4980,6 @@ Prof.register(function(v)
   return "Party: hechizo para amigos " .. (on and "SI" or "NO")
 end)
 
--- Cambios de la logica (v12): hechizo para curar amigos.
--- Cambios de la logica (v10):
---  - Los nombres de la lista se ayudan siempre, aunque no esten en party.
---  - Party detectada tambien por el escudo (si el cliente no tiene
---    isPartyMember).
---  - Si la runa no esta en una mochila abierta, la usa por hotkey.
---  - La linea de estado dice exactamente por que no cura.
 local lastRune, lastPot = -1000000, -1000000
 local RUNE_CD, POT_CD, SELF_POT_GAP = 1000, 1000, 1100
 local lastSio, SIO_CD = -1000000, 1000
@@ -5045,6 +5103,7 @@ macro(200, function()
             pcall(function() g_game.useInventoryItemWith(uhId, t.creature, 0) end)
           end
           lastRune = now
+          Shared.lastUseId, Shared.lastUseAt = uhId, now
           setEkStatus("UH a " .. t.name .. " (" .. t.hp .. "%)" ..
             (rune and "" or " por hotkey"), "#88ff88")
           return
@@ -5097,6 +5156,7 @@ macro(200, function()
         end
         lastPot = now
         Shared.lastSelfPotion = now
+        Shared.lastUseId, Shared.lastUseAt = potId, now
         setEkStatus("Mana a " .. t.name .. " (" .. t.mp .. "%)", "#88ccff")
         return
       end
@@ -6116,6 +6176,7 @@ macro(100, function()
           else
             pcall(function() g_game.useInventoryItemWith(r.item, target, 0) end)
           end
+          Shared.lastUseId, Shared.lastUseAt = r.item, now
         else
           say(name)
         end
@@ -6706,7 +6767,7 @@ end -- fin: 9. MAIN - PAZZUR
 endSection(__sec)
 
 -- #####################################################################
--- 10. HP - PAZZUR: Set Ataque/Defensa y Kina War Healer
+-- 10. HP - PAZZUR: Set Ataque/Defensa, Kina War Healer y Alarma PK
 -- #####################################################################
 __sec = startSection("HP")
 do
@@ -7646,6 +7707,7 @@ PzKinaWindow < MainWindow
         useWith(want.id, player)
         lastSpecialTry = now
         Shared.lastSelfPotion = now
+        Shared.lastUseId, Shared.lastUseAt = want.id, now
         act("Pocion " .. SPECIAL_DEF[wantIdx].name, "#88ccff")
       end
       return   -- solo durante la ventana se aparta la pocion de vida
@@ -7656,10 +7718,107 @@ PzKinaWindow < MainWindow
       useWith(h.id, player)
       lastHealth = now
       Shared.lastSelfPotion = now
+      Shared.lastUseId, Shared.lastUseAt = h.id, now
       if now - lastActAt > 600 then act("Pocion de vida", "#88ff88") end
     end
 
     if now - lastActAt > 2000 then setStatus("Activo", "#66ff66") end
+  end)
+end
+
+-- ============================================================
+-- ALARMA PK (calavera blanca, roja o negra)
+--  - Sonido cada 3 s mientras haya un PK en pantalla.
+--  - Aviso a Telegram (en el celular vibra y enciende la pantalla).
+--  - Un solo mensaje por PK: no se repite mientras siga en pantalla.
+--  - No avisa si TU tienes skull.
+--  - Boton "Probar" para comprobar sonido y Telegram.
+--  - Los de tu party no cuentan.
+-- ============================================================
+do
+  local AL = "pkAlarmV1"
+  if type(storage[AL]) ~= "table" then
+    storage[AL] = {enabled = false, sound = true, tgToken = "", tgChat = "", repeatSec = 60}
+  end
+  local al = storage[AL]
+
+  UIx.header("ALARMA PK")
+  local aUI = UIx.scriptPanel("Alarma PK")
+  aUI.setupBtn:setText("Probar")
+  pcall(function()
+    UI.Label("Telegram token del bot:")
+    UI.TextEdit(al.tgToken or "", function(w, t) al.tgToken = trim(t) end)
+    UI.Label("Telegram chat id:")
+    UI.TextEdit(al.tgChat or "", function(w, t) al.tgChat = trim(t) end)
+  end)
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(aUI.status, t, c)
+  end
+
+  local function urlEnc(s)
+    return (s:gsub("[^%w%-_%.~]", function(ch) return string.format("%%%02X", ch:byte()) end))
+  end
+  local function telegram(msg)
+    if (al.tgToken or "") == "" or (al.tgChat or "") == "" then return false end
+    pcall(function()
+      HTTP.get("https://api.telegram.org/bot" .. al.tgToken .. "/sendMessage?chat_id="
+        .. urlEnc(al.tgChat) .. "&text=" .. urlEnc(msg), function() end)
+    end)
+    return true
+  end
+
+  local lastSound = -1000000
+  local function sound()
+    pcall(function() g_window.flash() end)
+    if al.sound and now - lastSound >= 3000 then
+      lastSound = now
+      pcall(function() playSound("/sounds/alarm.ogg") end)
+    end
+  end
+
+  aUI.setupBtn.onClick = function()
+    lastSound = -1000000
+    sound()
+    local sent = telegram("[Prueba] Alarma PK de " .. (player and player:getName() or "?"))
+    setSt(sent and "Prueba enviada" or "Prueba: falta token / chat id", sent and "#88ccff" or "#ffaa44")
+  end
+
+  UIx.bindSwitch(al, aUI.switch, nil, function(v)
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  local notified, GONE_MS = {}, 5 * 60 * 1000
+  macro(500, function()
+    if not al.enabled or not g_game.isOnline() then return end
+    local list = Shared.pkList()
+    if #list == 0 then setSt("Activo - sin PK", "#66ff66"); return end
+
+    if Shared.iAmPk() then
+      setSt("Tienes skull: alarma en pausa", "#aaaaaa")
+      return
+    end
+
+    -- Solo avisa cuando el PK APARECE. Si sigue en pantalla no se
+    -- repite; vuelve a avisar solo si se fue mas de 5 min y regresa.
+    local names, fresh = {}, {}
+    for _, s in ipairs(list) do
+      local n = s:getName() or "?"
+      table.insert(names, n)
+      if now - (notified[n] or -100000000) >= GONE_MS then
+        table.insert(fresh, n)
+      end
+      notified[n] = now
+    end
+    sound()
+    if #fresh > 0 then
+      telegram("PK en pantalla (" .. (player and player:getName() or "?") .. "): "
+        .. table.concat(fresh, ", "))
+    end
+    setSt("PK: " .. table.concat(names, ", "), "#ff4444")
   end)
 end
 
