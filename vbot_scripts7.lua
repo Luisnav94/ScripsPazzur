@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 22)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 23)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v23
+--   - Bug Map (keypad): el keypad no aparecia en Android. Ahora va en
+--     la pantalla principal (no dentro del mapa), se revisa cada
+--     segundo que este visible, dentro de la pantalla y encima de todo.
 --
 --  CAMBIOS v22
 --   - NUEVO "Bug Map (keypad)" (pestana Tools): keypad flotante de 8
@@ -8204,7 +8209,6 @@ do
 
   g_ui.loadUIFromString([[
 BugPadButton < Button
-  font: verdana-11px-rounded
   text-align: center
 
 BugPadWindow < MainWindow
@@ -8339,29 +8343,49 @@ BugPadWindow < MainWindow
   }
 
   -- ----- Keypad flotante -----
+  -- Va directo en la pantalla principal (rootWidget), no dentro del
+  -- mapa: en Android el panel del mapa puede tapar o recortar lo que
+  -- se le pone encima. Ademas se revisa cada segundo que siga visible,
+  -- dentro de la pantalla y por encima de todo.
   local pad, buttons, held = nil, {}, {}
-  local parent
-  pcall(function() parent = modules.game_interface.getMapPanel() end)
-  parent = parent or rootWidget
+  local root = g_ui.getRootWidget() or rootWidget
+
+  local function rootSize()
+    local s = root:getSize()
+    return s.width or 0, s.height or 0
+  end
 
   local function placeDefault()
-    local ps = parent:getSize()
+    local rw, rh = rootSize()
     local total = bk.size * 3
-    local px, py = parent:getX(), parent:getY()
-    pad:move(px + 10, py + ps.height - total - 10)
+    pad:move(20, math.max(0, rh - total - 120))
+  end
+
+  -- Si quedo fuera de la pantalla, lo devuelve a su lugar
+  local function clampPad()
+    if not pad then return end
+    local rw, rh = rootSize()
+    if rw <= 0 or rh <= 0 then return end
+    local total = bk.size * 3
+    local x, y = pad:getX(), pad:getY()
+    if x < 0 or y < 0 or x + total > rw or y + total > rh then
+      x = math.max(0, math.min(x, rw - total))
+      y = math.max(0, math.min(y, rh - total))
+      pad:move(x, y)
+      bk.x, bk.y = x, y
+    end
   end
 
   local function savePos()
     if not pad then return end
-    bk.x = pad:getX() - parent:getX()
-    bk.y = pad:getY() - parent:getY()
+    bk.x, bk.y = pad:getX(), pad:getY()
   end
 
   local function buildPad()
     if pad then pcall(function() pad:destroy() end) end
     buttons, held = {}, {}
     local s = bk.size
-    pad = g_ui.createWidget('UIWidget', parent)
+    pad = g_ui.createWidget('UIWidget', root)
     pad:setSize({width = s * 3, height = s * 3})
     pad:setOpacity((bk.opacity or 70) / 100)
 
@@ -8397,19 +8421,33 @@ BugPadWindow < MainWindow
     end
     c.onDragLeave = function(w)
       w.off = nil
+      clampPad()
       savePos()
       return true
     end
 
     if (bk.x or -1) >= 0 and (bk.y or -1) >= 0 then
-      pad:move(parent:getX() + bk.x, parent:getY() + bk.y)
+      pad:move(bk.x, bk.y)
     else
       placeDefault()
     end
+    clampPad()
     pad:setVisible(bk.enabled == true)
     pad:raise()
   end
+  -- La posicion guardada en v22 era relativa al mapa: se descarta
+  if not bk.v23 then bk.x, bk.y, bk.v23 = -1, -1, true end
   buildPad()
+
+  -- Vigilante: visible, dentro de la pantalla y encima de todo
+  macro(1000, function()
+    if not bk.enabled then return end
+    local ok, alive = pcall(function() return pad and not pad:isDestroyed() end)
+    if not (ok and alive) then buildPad(); return end
+    if not pad:isVisible() then pad:setVisible(true) end
+    clampPad()
+    pad:raise()
+  end)
 
   -- ----- Ventana de configuracion -----
 
@@ -8426,7 +8464,7 @@ BugPadWindow < MainWindow
   end
   bWin.resetPos.onClick = function()
     bk.x, bk.y = -1, -1
-    if pad then placeDefault(); savePos() end
+    if pad then placeDefault(); clampPad(); savePos(); pad:raise() end
   end
   bWin.closeBtn.onClick = function() bWin:hide() end
   bUI.setupBtn.onClick = function() UIx.toggleWindow(bWin) end
