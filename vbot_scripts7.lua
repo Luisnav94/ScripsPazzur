@@ -1,9 +1,16 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 22)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 23)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v23
+--   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
+--     ataca de los monstruos pegados: el de MAS vida, el de MENOS vida
+--     o el MAS cercano. No cambia de objetivo por menos de 10% de vida.
+--   - Auto Haste: ahora tiene boton Config con su ventana (hechizo,
+--     mana minima, pausa entre intentos) como los demas scripts.
 --
 --  CAMBIOS v22
 --   - NUEVO "Auto Haste" (pestana Tools): reemplaza al haste de
@@ -4117,6 +4124,7 @@ do
     maxPathChecks        = 6,
     attackWithoutCaveBot = true,
     ignoreNames          = "",
+    targetMode           = "high",   -- high = mas vida, low = menos vida, near = mas cercano
   }
 
   if type(storage[LK]) ~= "table" then storage[LK] = {enabled = false} end
@@ -4129,7 +4137,7 @@ do
   g_ui.loadUIFromString([[
 DynamicLureWindow < MainWindow
   !text: tr('Dynamic Lure')
-  size: 360 670
+  size: 360 700
   @onEscape: self:hide()
 
   VbTitle
@@ -4323,9 +4331,18 @@ DynamicLureWindow < MainWindow
     text: Seguir al monstruo (chase) al pelear
     !tooltip: tr('Recomendado solo para Knight/Monk. Por defecto segun la profesion.')
 
+  Button
+    id: targetMode
+    anchors.top: useChase.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 22
+    !tooltip: tr('A quien ataca de los monstruos pegados a ti. Toca para cambiar.')
+
   HorizontalSeparator
     id: sep3
-    anchors.top: useChase.bottom
+    anchors.top: targetMode.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
@@ -4414,6 +4431,14 @@ DynamicLureWindow < MainWindow
     return lc.useChase == true
   end
 
+  -- Prioridad de objetivo
+  local TARGET_TEXT = {
+    high = "Objetivo: el de MAS vida",
+    low  = "Objetivo: el de MENOS vida",
+    near = "Objetivo: el MAS cercano",
+  }
+  local TARGET_NEXT = {high = "low", low = "near", near = "high"}
+
   local loading = false
   local function loadWindow()
     loading = true
@@ -4422,6 +4447,7 @@ DynamicLureWindow < MainWindow
     for _, key in ipairs(SPINS) do lWin[key]:setValue(lc[key]) end
     lWin.attackWithoutCaveBot:setChecked(lc.attackWithoutCaveBot)
     lWin.ignoreNames:setText(lc.ignoreNames or "")
+    lWin.targetMode:setText(TARGET_TEXT[lc.targetMode] or TARGET_TEXT.high)
   end
 
   loadWindow()
@@ -4432,6 +4458,10 @@ DynamicLureWindow < MainWindow
   lWin.ignoreNames.onTextChange = function(w, t) lc.ignoreNames = t end
   lWin.useChase.onCheckChange = function(w, c)
     if not loading then lc.useChase = c end
+  end
+  lWin.targetMode.onClick = function(w)
+    lc.targetMode = TARGET_NEXT[lc.targetMode] or "high"
+    w:setText(TARGET_TEXT[lc.targetMode])
   end
 
   Prof.register(function(v)
@@ -4547,11 +4577,24 @@ DynamicLureWindow < MainWindow
     local visibleCount = #mobs
     local bestAdjacent, bestAdjacentHP, closestReachable = nil, -1, nil
     local checks = 0
+    local mode = lc.targetMode or "high"
+
+    -- Puntaje: mayor = mejor objetivo segun el modo
+    local function score(m)
+      if mode == "low" then return 100 - m.hp end
+      if mode == "near" then return 0 end   -- ya estan ordenados por distancia
+      return m.hp
+    end
+    local curAdj, curScore = nil, -1
 
     for _, m in ipairs(mobs) do
       if m.dist <= 1 then
-        if m.hp > bestAdjacentHP then
-          bestAdjacentHP, bestAdjacent = m.hp, m.cr
+        local sc = score(m)
+        if sc > bestAdjacentHP then
+          bestAdjacentHP, bestAdjacent = sc, m.cr
+        end
+        if current and m.cr:getId() == current:getId() then
+          curAdj, curScore = m.cr, sc
         end
         closestReachable = closestReachable or m.cr
       elseif not closestReachable then
@@ -4585,6 +4628,13 @@ DynamicLureWindow < MainWindow
       end
     else
       blockedSince = 0
+    end
+
+    -- No cambiar por poco: si el objetivo actual esta pegado y la
+    -- diferencia es menor a 10% de vida, se queda con el (evita saltar
+    -- de un monstruo a otro todo el tiempo).
+    if curAdj and bestAdjacent and bestAdjacentHP - curScore < 10 then
+      bestAdjacent = curAdj
     end
 
     local wantedTarget = bestAdjacent or closestReachable
@@ -8211,29 +8261,121 @@ endSection(__sec)
 __sec = startSection("Tools")
 do
   local HK = "autoHasteV1"
+  -- trim propio (no es global en vBot: daba "attempt to call global 'trim'")
+  local function trim(t) return (tostring(t or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
   if type(storage[HK]) ~= "table" then
     storage[HK] = {enabled = false, words = "utani tempo hur", mana = 0, every = 3}
   end
   local hk = storage[HK]
 
+  g_ui.loadUIFromString([[
+AutoHasteWindow < MainWindow
+  !text: tr('Auto Haste')
+  size: 290 250
+  @onEscape: self:hide()
+
+  Label
+    id: lWords
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Hechizo de haste:
+
+  TextEdit
+    id: words
+    anchors.top: lWords.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  Label
+    id: lMana
+    anchors.top: words.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Mana minima (0 = sin limite)
+
+  SpinBox
+    id: mana
+    anchors.verticalCenter: lMana.verticalCenter
+    anchors.left: lMana.right
+    width: 65
+    minimum: 0
+    maximum: 99999
+    step: 50
+
+  Label
+    id: lEvery
+    anchors.top: lMana.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Pausa entre intentos (seg)
+
+  SpinBox
+    id: every
+    anchors.verticalCenter: lEvery.verticalCenter
+    anchors.left: lEvery.right
+    width: 65
+    minimum: 1
+    maximum: 30
+    step: 1
+
+  VbHint
+    id: hint
+    anchors.top: lEvery.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Apaga el Haste de Conditions (pestana HP) para que no choquen.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
   UIx.header("AUTO HASTE")
   local hUI = UIx.scriptPanel("Auto Haste")
-  hUI.setupBtn:setVisible(false)
-  pcall(function()
-    UI.Label("Hechizo de haste:")
-    UI.TextEdit(hk.words or "", function(w, t) hk.words = trim(t) end)
-    UI.Label("Mana minima (0 = sin limite):")
-    UI.TextEdit(tostring(hk.mana or 0), function(w, t) hk.mana = tonumber(t) or 0 end)
-  end)
+  local hWin = UI.createWindow('AutoHasteWindow', rootWidget)
+  hWin:hide()
+
+  hWin.words:setText(hk.words or "")
+  hWin.words.onTextChange = function(w, t) hk.words = trim(t) end
+  hWin.mana:setValue(hk.mana or 0)
+  hWin.mana.onValueChange = function(w, v) hk.mana = v end
+  hWin.every:setValue(hk.every or 3)
+  hWin.every.onValueChange = function(w, v) hk.every = v end
+  hWin.closeBtn.onClick = function() hWin:hide() end
+  hUI.setupBtn.onClick = function() UIx.toggleWindow(hWin) end
 
   local lastSt = ""
   local function setSt(t, c)
     if t == lastSt then return end
     lastSt = t
     UIx.setLabel(hUI.status, t, c)
+    UIx.setLabel(hWin.status, t, c)
   end
 
-  UIx.bindSwitch(hk, hUI.switch, nil, function(v)
+  UIx.bindSwitch(hk, hUI.switch, hWin.enableBtn, function(v)
     setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
   end)
 
