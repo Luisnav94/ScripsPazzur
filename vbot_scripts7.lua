@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 23)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 24)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v24
+--   - Bug Map (keypad): ahora es una ventanita "Bug Map" (como las de
+--     Config, que si se ven en Android). Se mueve arrastrando su barra
+--     de titulo. El boton del centro (o) para de caminar.
 --
 --  CAMBIOS v23
 --   - Bug Map (keypad): el keypad no aparecia en Android. Ahora va en
@@ -8211,6 +8216,10 @@ do
 BugPadButton < Button
   text-align: center
 
+BugPadFloat < MainWindow
+  !text: tr('Bug Map')
+  size: 160 180
+
 BugPadWindow < MainWindow
   !text: tr('Bug Map (keypad)')
   size: 290 270
@@ -8298,7 +8307,7 @@ BugPadWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 6
-    text: Manten presionada una flecha para caminar. Arrastra el boton del centro para mover el keypad.
+    text: Manten presionada una flecha para caminar. Arrastra la barra 'Bug Map' para mover el keypad. El boton del centro (o) lo para.
 
   VbStatus
     id: status
@@ -8343,89 +8352,74 @@ BugPadWindow < MainWindow
   }
 
   -- ----- Keypad flotante -----
-  -- Va directo en la pantalla principal (rootWidget), no dentro del
-  -- mapa: en Android el panel del mapa puede tapar o recortar lo que
-  -- se le pone encima. Ademas se revisa cada segundo que siga visible,
-  -- dentro de la pantalla y por encima de todo.
+  -- Es una ventanita igual que las de Config (esas SI se ven en tu
+  -- celular). Se mueve arrastrando su barra de titulo "Bug Map".
   local pad, buttons, held = nil, {}, {}
-  local root = g_ui.getRootWidget() or rootWidget
-
-  local function rootSize()
-    local s = root:getSize()
-    return s.width or 0, s.height or 0
-  end
-
-  local function placeDefault()
-    local rw, rh = rootSize()
-    local total = bk.size * 3
-    pad:move(20, math.max(0, rh - total - 120))
-  end
-
-  -- Si quedo fuera de la pantalla, lo devuelve a su lugar
-  local function clampPad()
-    if not pad then return end
-    local rw, rh = rootSize()
-    if rw <= 0 or rh <= 0 then return end
-    local total = bk.size * 3
-    local x, y = pad:getX(), pad:getY()
-    if x < 0 or y < 0 or x + total > rw or y + total > rh then
-      x = math.max(0, math.min(x, rw - total))
-      y = math.max(0, math.min(y, rh - total))
-      pad:move(x, y)
-      bk.x, bk.y = x, y
-    end
-  end
 
   local function savePos()
     if not pad then return end
     bk.x, bk.y = pad:getX(), pad:getY()
   end
 
+  local function rootSize()
+    local s = rootWidget:getSize()
+    return s.width or 0, s.height or 0
+  end
+
+  local function clampPad()
+    if not pad then return end
+    local rw, rh = rootSize()
+    if rw <= 0 or rh <= 0 then return end
+    local sz = pad:getSize()
+    local x, y = pad:getX(), pad:getY()
+    local nx = math.max(0, math.min(x, rw - sz.width))
+    local ny = math.max(0, math.min(y, rh - sz.height))
+    if nx ~= x or ny ~= y then pad:move(nx, ny) end
+  end
+
+  local function placeDefault()
+    local rw, rh = rootSize()
+    local sz = pad:getSize()
+    pad:move(math.floor(rw * 0.55), math.max(0, rh - sz.height - 90))
+  end
+
   local function buildPad()
-    if pad then pcall(function() pad:destroy() end) end
+    if pad then savePos(); pcall(function() pad:destroy() end) end
     buttons, held = {}, {}
     local s = bk.size
-    pad = g_ui.createWidget('UIWidget', root)
-    pad:setSize({width = s * 3, height = s * 3})
+    pad = UI.createWindow('BugPadFloat', rootWidget)
+
+    -- Tamano: 3x3 botones + los bordes de la ventana
+    local pl, pr, pt, pb = 8, 8, 28, 8
+    pcall(function()
+      pl, pr = pad:getPaddingLeft(), pad:getPaddingRight()
+      pt, pb = pad:getPaddingTop(), pad:getPaddingBottom()
+    end)
+    pad:setSize({width = s * 3 + pl + pr, height = s * 3 + pt + pb})
     pad:setOpacity((bk.opacity or 70) / 100)
 
-    for key, d in pairs(DIRS) do
+    local function addBtn(text, row, col)
       local b = g_ui.createWidget('BugPadButton', pad)
       b:setSize({width = s - 2, height = s - 2})
-      b:setText(d[3])
+      b:setText(text)
       b:addAnchor(AnchorTop, 'parent', AnchorTop)
       b:addAnchor(AnchorLeft, 'parent', AnchorLeft)
-      b:setMarginTop(d[4] * s)
-      b:setMarginLeft(d[5] * s)
+      b:setMarginTop(row * s)
+      b:setMarginLeft(col * s)
+      return b
+    end
+
+    for key, d in pairs(DIRS) do
+      local b = addBtn(d[3], d[4], d[5])
       b.onMousePress = function() held[key] = true; return true end
       b.onMouseRelease = function() held[key] = false; return true end
       buttons[key] = b
     end
+    -- Centro: parar
+    local c = addBtn("o", 1, 1)
+    c.onClick = function() held = {} end
 
-    -- Centro: arrastrar el keypad
-    local c = g_ui.createWidget('BugPadButton', pad)
-    c:setSize({width = s - 2, height = s - 2})
-    c:setText("+")
-    c:addAnchor(AnchorTop, 'parent', AnchorTop)
-    c:addAnchor(AnchorLeft, 'parent', AnchorLeft)
-    c:setMarginTop(s)
-    c:setMarginLeft(s)
-    c:setDraggable(true)
-    c.onDragEnter = function(w, mp)
-      w.off = {x = mp.x - pad:getX(), y = mp.y - pad:getY()}
-      return true
-    end
-    c.onDragMove = function(w, mp)
-      if w.off then pad:move(mp.x - w.off.x, mp.y - w.off.y) end
-      return true
-    end
-    c.onDragLeave = function(w)
-      w.off = nil
-      clampPad()
-      savePos()
-      return true
-    end
-
+    pad:show()
     if (bk.x or -1) >= 0 and (bk.y or -1) >= 0 then
       pad:move(bk.x, bk.y)
     else
@@ -8433,20 +8427,23 @@ BugPadWindow < MainWindow
     end
     clampPad()
     pad:setVisible(bk.enabled == true)
-    pad:raise()
+    if bk.enabled then pad:raise() end
   end
-  -- La posicion guardada en v22 era relativa al mapa: se descarta
-  if not bk.v23 then bk.x, bk.y, bk.v23 = -1, -1, true end
+  -- Las posiciones de v22/v23 no sirven con la ventanita
+  if not bk.v24 then bk.x, bk.y, bk.v24 = -1, -1, true end
   buildPad()
 
-  -- Vigilante: visible, dentro de la pantalla y encima de todo
+  -- Vigilante: visible, dentro de la pantalla, guarda la posicion
   macro(1000, function()
-    if not bk.enabled then return end
+    if not bk.enabled then
+      if pad and pad:isVisible() then pad:hide() end
+      return
+    end
     local ok, alive = pcall(function() return pad and not pad:isDestroyed() end)
     if not (ok and alive) then buildPad(); return end
-    if not pad:isVisible() then pad:setVisible(true) end
+    if not pad:isVisible() then pad:show(); pad:raise() end
     clampPad()
-    pad:raise()
+    savePos()
   end)
 
   -- ----- Ventana de configuracion -----
@@ -8464,13 +8461,15 @@ BugPadWindow < MainWindow
   end
   bWin.resetPos.onClick = function()
     bk.x, bk.y = -1, -1
-    if pad then placeDefault(); clampPad(); savePos(); pad:raise() end
+    if pad then placeDefault(); clampPad(); savePos(); pad:show(); pad:raise() end
   end
   bWin.closeBtn.onClick = function() bWin:hide() end
   bUI.setupBtn.onClick = function() UIx.toggleWindow(bWin) end
 
   UIx.bindSwitch(bk, bUI.switch, bWin.enableBtn, function(v)
-    if pad then pad:setVisible(v); if v then pad:raise() end end
+    if pad then
+      if v then pad:show(); pad:raise() else pad:hide() end
+    end
     held = {}
     setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
   end)
