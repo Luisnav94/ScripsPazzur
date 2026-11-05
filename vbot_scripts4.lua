@@ -1,9 +1,31 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 20)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 23)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v23
+--   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
+--     ataca de los monstruos pegados: el de MAS vida, el de MENOS vida
+--     o el MAS cercano. No cambia de objetivo por menos de 10% de vida.
+--   - Auto Haste: ahora tiene boton Config con su ventana (hechizo,
+--     mana minima, pausa entre intentos) como los demas scripts.
+--     No lanza en PZ (revisa el sqm ademas del icono) ni estando quieto
+--     (opcion "Solo si me estoy moviendo", activada).
+--
+--  CAMBIOS v22
+--   - NUEVO "Auto Haste" (pestana Tools): reemplaza al haste de
+--     Conditions. Solo lanza si no tienes haste y respeta el exhaust de
+--     soporte (2 s) junto con "Buff de ataque": ya no salen "You are
+--     exhausted" por chocar haste + utito tempo.
+--   - Buff de ataque: espera el exhaust de soporte antes de lanzar.
+--
+--  CAMBIOS v21
+--   - NUEVO "Auto Comida" (pestana HP), reemplaza al Eat Food de vBot:
+--     4 casillas de comida, come solo cuando hace falta, pausa tras
+--     "You are full", no come con PK en pantalla, con vida baja ni justo
+--     despues de una pocion. Apaga el Eat Food de vBot (opcional).
 --
 --  CAMBIOS v20
 --   - Quitado el contador de pociones del Kina War Healer.
@@ -146,6 +168,8 @@
 --   8. CAVE  - Attack Bot (todas las profesiones)
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
 --  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
+--  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
+--  12. TOOLS - Auto Haste (reemplaza al haste de Conditions)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -294,7 +318,16 @@ local Shared = {
   -- Ultimo item usado por los scripts (para el contador de pociones)
   lastUseId      = 0,
   lastUseAt      = -1000000,
+  -- Grupo de hechizos de SOPORTE (haste, utito tempo, charge...):
+  -- comparten exhaust de 2 s. Si se lanzan juntos sale "You are exhausted".
+  lastSupport    = -1000000,
+  supportBlock   = 0,
 }
+local SUPPORT_GAP = 2000
+function Shared.supportReady()
+  return now - (Shared.lastSupport or -1000000) >= SUPPORT_GAP
+     and now >= (Shared.supportBlock or 0)
+end
 
 -- Jugadores con calavera blanca, roja o negra en pantalla (sin contar
 -- los de tu party). Lo usan "Equipo Auto" (modo PK) y "Alarma PK".
@@ -3971,9 +4004,14 @@ UtitoWindow < MainWindow
       return
     end
     if now - lastTry < 1000 then return end
+    if not Shared.supportReady() then
+      setUStatus("Esperando exhaust de soporte", "#aaaaaa")
+      return
+    end
 
     say(words)
     lastTry = now
+    Shared.lastSupport = now
     if not confirmSeen then lastUtito = now end
     setUStatus("Lanzando " .. words, "#88ff88")
   end)
@@ -4088,6 +4126,7 @@ do
     maxPathChecks        = 6,
     attackWithoutCaveBot = true,
     ignoreNames          = "",
+    targetMode           = "high",   -- high = mas vida, low = menos vida, near = mas cercano
   }
 
   if type(storage[LK]) ~= "table" then storage[LK] = {enabled = false} end
@@ -4100,7 +4139,7 @@ do
   g_ui.loadUIFromString([[
 DynamicLureWindow < MainWindow
   !text: tr('Dynamic Lure')
-  size: 360 670
+  size: 360 700
   @onEscape: self:hide()
 
   VbTitle
@@ -4294,9 +4333,18 @@ DynamicLureWindow < MainWindow
     text: Seguir al monstruo (chase) al pelear
     !tooltip: tr('Recomendado solo para Knight/Monk. Por defecto segun la profesion.')
 
+  Button
+    id: targetMode
+    anchors.top: useChase.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 22
+    !tooltip: tr('A quien ataca de los monstruos pegados a ti. Toca para cambiar.')
+
   HorizontalSeparator
     id: sep3
-    anchors.top: useChase.bottom
+    anchors.top: targetMode.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
@@ -4385,6 +4433,14 @@ DynamicLureWindow < MainWindow
     return lc.useChase == true
   end
 
+  -- Prioridad de objetivo
+  local TARGET_TEXT = {
+    high = "Objetivo: el de MAS vida",
+    low  = "Objetivo: el de MENOS vida",
+    near = "Objetivo: el MAS cercano",
+  }
+  local TARGET_NEXT = {high = "low", low = "near", near = "high"}
+
   local loading = false
   local function loadWindow()
     loading = true
@@ -4393,6 +4449,7 @@ DynamicLureWindow < MainWindow
     for _, key in ipairs(SPINS) do lWin[key]:setValue(lc[key]) end
     lWin.attackWithoutCaveBot:setChecked(lc.attackWithoutCaveBot)
     lWin.ignoreNames:setText(lc.ignoreNames or "")
+    lWin.targetMode:setText(TARGET_TEXT[lc.targetMode] or TARGET_TEXT.high)
   end
 
   loadWindow()
@@ -4403,6 +4460,10 @@ DynamicLureWindow < MainWindow
   lWin.ignoreNames.onTextChange = function(w, t) lc.ignoreNames = t end
   lWin.useChase.onCheckChange = function(w, c)
     if not loading then lc.useChase = c end
+  end
+  lWin.targetMode.onClick = function(w)
+    lc.targetMode = TARGET_NEXT[lc.targetMode] or "high"
+    w:setText(TARGET_TEXT[lc.targetMode])
   end
 
   Prof.register(function(v)
@@ -4518,11 +4579,24 @@ DynamicLureWindow < MainWindow
     local visibleCount = #mobs
     local bestAdjacent, bestAdjacentHP, closestReachable = nil, -1, nil
     local checks = 0
+    local mode = lc.targetMode or "high"
+
+    -- Puntaje: mayor = mejor objetivo segun el modo
+    local function score(m)
+      if mode == "low" then return 100 - m.hp end
+      if mode == "near" then return 0 end   -- ya estan ordenados por distancia
+      return m.hp
+    end
+    local curAdj, curScore = nil, -1
 
     for _, m in ipairs(mobs) do
       if m.dist <= 1 then
-        if m.hp > bestAdjacentHP then
-          bestAdjacentHP, bestAdjacent = m.hp, m.cr
+        local sc = score(m)
+        if sc > bestAdjacentHP then
+          bestAdjacentHP, bestAdjacent = sc, m.cr
+        end
+        if current and m.cr:getId() == current:getId() then
+          curAdj, curScore = m.cr, sc
         end
         closestReachable = closestReachable or m.cr
       elseif not closestReachable then
@@ -4556,6 +4630,13 @@ DynamicLureWindow < MainWindow
       end
     else
       blockedSince = 0
+    end
+
+    -- No cambiar por poco: si el objetivo actual esta pegado y la
+    -- diferencia es menor a 10% de vida, se queda con el (evita saltar
+    -- de un monstruo a otro todo el tiempo).
+    if curAdj and bestAdjacent and bestAdjacentHP - curScore < 10 then
+      bestAdjacent = curAdj
     end
 
     local wantedTarget = bestAdjacent or closestReachable
@@ -7823,4 +7904,575 @@ do
 end
 
 end -- fin: 10. HP - PAZZUR
+endSection(__sec)
+
+-- =====================================================================
+-- 11. HP - AUTO COMIDA (reemplaza al "Eat Food" de vBot)
+--  - 4 casillas para elegir comida (usa la primera que encuentre).
+--  - Come solo cuando hace falta: si el servidor manda el tiempo de
+--    regeneracion, come cuando baja del minimo; si no lo manda, come
+--    hasta "You are full" y luego descansa X minutos.
+--  - "You are full" -> pausa (no intenta comer cada segundo).
+--  - No come con PK en pantalla (opcional), ni con vida baja, ni justo
+--    despues de una pocion (no le roba el exhaust a los healers).
+--  - Apaga el "Eat Food" de vBot para que no coman los dos (opcional).
+--  - Si la comida no esta en una mochila abierta, la usa por hotkey.
+-- =====================================================================
+__sec = startSection("HP")
+do
+  local FC = "autoFoodV1"
+  local DEF = {
+    enabled = false,
+    foods = {3582, 3577, 3725, 3731},   -- ham, meat, brown mushroom, fire mushroom
+    minRegen = 600,      -- come si la regeneracion baja de esto (seg)
+    fullMin = 3,         -- minutos de pausa tras "You are full"
+    minHp = 70,          -- no come con vida por debajo de esto (%)
+    pausePk = true,
+    killVbot = true,
+  }
+  if type(storage[FC]) ~= "table" then storage[FC] = {} end
+  local fc = storage[FC]
+  for k, v in pairs(DEF) do if fc[k] == nil then fc[k] = v end end
+  if type(fc.foods) ~= "table" then fc.foods = {3582, 3577, 3725, 3731} end
+
+  local EAT_RETRY = 1500     -- entre bocados mientras no este lleno
+  local POT_GAP   = 1200     -- espera tras una pocion antes de comer
+
+  g_ui.loadUIFromString([[
+AutoFoodWindow < MainWindow
+  !text: tr('Auto Comida')
+  size: 300 330
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tFoods
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Comidas (en orden de prioridad)
+
+  BotItem
+    id: food1
+    anchors.top: tFoods.bottom
+    anchors.left: parent.left
+    margin-top: 4
+
+  BotItem
+    id: food2
+    anchors.top: food1.top
+    anchors.left: food1.right
+    margin-left: 6
+
+  BotItem
+    id: food3
+    anchors.top: food1.top
+    anchors.left: food2.right
+    margin-left: 6
+
+  BotItem
+    id: food4
+    anchors.top: food1.top
+    anchors.left: food3.right
+    margin-left: 6
+
+  VbHint
+    id: hFoods
+    anchors.top: food1.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Arrastra la comida a las casillas. Deja vacia la que no uses.
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: hFoods.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  Label
+    id: lRegen
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    width: 190
+    text: Comer si regeneracion < (seg)
+
+  SpinBox
+    id: minRegen
+    anchors.verticalCenter: lRegen.verticalCenter
+    anchors.left: lRegen.right
+    width: 60
+    minimum: 60
+    maximum: 1200
+    step: 60
+
+  Label
+    id: lFull
+    anchors.top: lRegen.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 190
+    text: Pausa tras "You are full" (min)
+
+  SpinBox
+    id: fullMin
+    anchors.verticalCenter: lFull.verticalCenter
+    anchors.left: lFull.right
+    width: 60
+    minimum: 1
+    maximum: 30
+    step: 1
+
+  Label
+    id: lHp
+    anchors.top: lFull.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 190
+    text: No comer con vida menor a (%)
+
+  SpinBox
+    id: minHp
+    anchors.verticalCenter: lHp.verticalCenter
+    anchors.left: lHp.right
+    width: 60
+    minimum: 0
+    maximum: 100
+    step: 5
+
+  CheckBox
+    id: pausePk
+    anchors.top: lHp.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 12
+    text: No comer con PK en pantalla
+
+  CheckBox
+    id: killVbot
+    anchors.top: pausePk.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Apagar el Eat Food de vBot
+
+  HorizontalSeparator
+    id: sepBottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: status.top
+    margin-bottom: 4
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("COMIDA")
+  local fUI = UIx.scriptPanel("Auto Comida")
+  local fWin = UI.createWindow('AutoFoodWindow', rootWidget)
+  fWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(fUI.status, t, c)
+    UIx.setLabel(fWin.status, t, c)
+  end
+
+  -- Casillas de comida
+  for i = 1, 4 do
+    local slot = fWin["food" .. i]
+    slot:setItemId(fc.foods[i] or 0)
+    slot.onItemChange = function(w) fc.foods[i] = w:getItemId() end
+  end
+
+  fWin.minRegen:setValue(fc.minRegen)
+  fWin.minRegen.onValueChange = function(w, v) fc.minRegen = v end
+  fWin.fullMin:setValue(fc.fullMin)
+  fWin.fullMin.onValueChange = function(w, v) fc.fullMin = v end
+  fWin.minHp:setValue(fc.minHp)
+  fWin.minHp.onValueChange = function(w, v) fc.minHp = v end
+  fWin.pausePk:setChecked(fc.pausePk)
+  fWin.pausePk.onCheckChange = function(w, c) fc.pausePk = c end
+  fWin.killVbot:setChecked(fc.killVbot)
+  fWin.killVbot.onCheckChange = function(w, c) fc.killVbot = c end
+
+  fWin.closeBtn.onClick = function() fWin:hide() end
+  fUI.setupBtn.onClick = function() UIx.toggleWindow(fWin) end
+
+  -- ----- Apagar el "Eat Food" de vBot (para que no coman los dos) -----
+  local vbSw, vbTries, vbLast = nil, 0, -1000000
+  local function findVbotEat()
+    local found
+    local function walk(w, depth)
+      if found or depth > 40 then return end
+      local ok, txt = pcall(function() return w:getText() end)
+      if ok and type(txt) == "string" and txt:lower() == "eat food"
+         and w.onClick and w.isOn then
+        found = w
+        return
+      end
+      local okc, kids = pcall(function() return w:getChildren() end)
+      if okc and kids then
+        for _, k in ipairs(kids) do
+          walk(k, depth + 1)
+          if found then return end
+        end
+      end
+    end
+    pcall(function() walk(g_ui.getRootWidget(), 0) end)
+    return found
+  end
+  local function offVbotEat()
+    if not fc.killVbot then return end
+    if not vbSw then
+      if vbTries >= 5 or now - vbLast < 30000 then return end
+      vbTries, vbLast = vbTries + 1, now
+      vbSw = findVbotEat()
+      if not vbSw then return end
+    end
+    local ok, on = pcall(function() return vbSw:isOn() end)
+    if ok and on then pcall(function() vbSw.onClick(vbSw) end) end
+  end
+
+  -- ----- Estado de comida -----
+  local nextTry, fullUntil, pkSeenAt = 0, 0, -1000000
+  local hotkeyIdx = 0
+
+  onTextMessage(function(mode, text)
+    local t = (text or ""):lower()
+    if t:find("you are full", 1, true) or t:find("estas lleno", 1, true)
+       or t:find("estás lleno", 1, true) then
+      fullUntil = now + (fc.fullMin or 3) * 60000
+      nextTry = fullUntil
+    end
+  end)
+
+  local function regenSec()
+    local ok, r = pcall(function() return player:getRegenerationTime() end)
+    if ok and type(r) == "number" then return r end
+    return 0
+  end
+
+  local function foodList()
+    local res = {}
+    for i = 1, 4 do
+      local id = fc.foods[i] or 0
+      if id > 0 then table.insert(res, id) end
+    end
+    return res
+  end
+
+  local function eat()
+    local ids = foodList()
+    if #ids == 0 then return false, "Sin comida elegida" end
+    -- 1) Comida en mochilas abiertas (en orden de prioridad)
+    for _, id in ipairs(ids) do
+      local item = findItem(id)
+      if item then
+        g_game.use(item)
+        return true, id
+      end
+    end
+    -- 2) Por hotkey (mochilas cerradas), va rotando las casillas
+    hotkeyIdx = hotkeyIdx % #ids + 1
+    local id = ids[hotkeyIdx]
+    pcall(function() g_game.useInventoryItem(id) end)
+    return true, id
+  end
+
+  UIx.bindSwitch(fc, fUI.switch, fWin.enableBtn, function(v)
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  macro(250, function()
+    if not fc.enabled or not g_game.isOnline() then return end
+    offVbotEat()
+
+    -- PK en pantalla
+    if fc.pausePk and not Shared.inPz() and #Shared.pkList() > 0 then
+      pkSeenAt = now
+    end
+    if now - pkSeenAt < 5000 then
+      setSt("Pausa: PK en pantalla", "#ffaa44")
+      return
+    end
+
+    -- Lleno ("You are full")
+    if now < fullUntil then
+      setSt("Lleno - vuelve a comer en " .. math.ceil((fullUntil - now) / 1000) .. " s", "#66ff66")
+      return
+    end
+
+    -- Regeneracion (si el servidor la manda)
+    local regen = regenSec()
+    if regen >= (fc.minRegen or 600) then
+      setSt("Lleno (regeneracion " .. regen .. " s)", "#66ff66")
+      return
+    end
+
+    -- Prioridad a la curacion
+    local hp = hppercent() or 100
+    if hp < (fc.minHp or 70) then
+      setSt("Espera: vida baja (" .. hp .. "%)", "#ffaa44")
+      return
+    end
+    if now - (Shared.lastSelfPotion or -1000000) < POT_GAP then return end
+
+    if now < nextTry then return end
+    local ok, info = eat()
+    nextTry = now + EAT_RETRY
+    if ok then
+      setSt("Comiendo (ID " .. info .. ")", "#88ccff")
+    else
+      setSt(info, "#ffaa44")
+    end
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 12. TOOLS - AUTO HASTE (reemplaza al haste de "Conditions" de vBot)
+--  - Lanza el haste solo cuando NO lo tienes puesto.
+--  - Respeta el exhaust de soporte (2 s) junto con "Buff de ataque",
+--    asi ya no chocan y no sale "You are exhausted".
+--  - Si el servidor dice "exhausted", espera 1 s y reintenta.
+--  - No lanza en PZ. Mana minima opcional.
+--  IMPORTANTE: apaga el Haste de "Conditions" (pestana HP de vBot).
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local HK = "autoHasteV1"
+  -- trim propio (no es global en vBot: daba "attempt to call global 'trim'")
+  local function trim(t) return (tostring(t or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+  if type(storage[HK]) ~= "table" then
+    storage[HK] = {enabled = false, words = "utani tempo hur", mana = 0, every = 3}
+  end
+  local hk = storage[HK]
+  if hk.onlyMoving == nil then hk.onlyMoving = true end
+
+  g_ui.loadUIFromString([[
+AutoHasteWindow < MainWindow
+  !text: tr('Auto Haste')
+  size: 290 280
+  @onEscape: self:hide()
+
+  Label
+    id: lWords
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Hechizo de haste:
+
+  TextEdit
+    id: words
+    anchors.top: lWords.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  Label
+    id: lMana
+    anchors.top: words.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Mana minima (0 = sin limite)
+
+  SpinBox
+    id: mana
+    anchors.verticalCenter: lMana.verticalCenter
+    anchors.left: lMana.right
+    width: 65
+    minimum: 0
+    maximum: 99999
+    step: 50
+
+  Label
+    id: lEvery
+    anchors.top: lMana.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Pausa entre intentos (seg)
+
+  SpinBox
+    id: every
+    anchors.verticalCenter: lEvery.verticalCenter
+    anchors.left: lEvery.right
+    width: 65
+    minimum: 1
+    maximum: 30
+    step: 1
+
+  CheckBox
+    id: onlyMoving
+    anchors.top: lEvery.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    text: Solo si me estoy moviendo (no estando quieto)
+
+  VbHint
+    id: hint
+    anchors.top: onlyMoving.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Apaga el Haste de Conditions (pestana HP) para que no choquen.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("AUTO HASTE")
+  local hUI = UIx.scriptPanel("Auto Haste")
+  local hWin = UI.createWindow('AutoHasteWindow', rootWidget)
+  hWin:hide()
+
+  hWin.words:setText(hk.words or "")
+  hWin.words.onTextChange = function(w, t) hk.words = trim(t) end
+  hWin.mana:setValue(hk.mana or 0)
+  hWin.mana.onValueChange = function(w, v) hk.mana = v end
+  hWin.every:setValue(hk.every or 3)
+  hWin.every.onValueChange = function(w, v) hk.every = v end
+  hWin.onlyMoving:setChecked(hk.onlyMoving)
+  hWin.onlyMoving.onCheckChange = function(w, c) hk.onlyMoving = c end
+  hWin.closeBtn.onClick = function() hWin:hide() end
+  hUI.setupBtn.onClick = function() UIx.toggleWindow(hWin) end
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(hUI.status, t, c)
+    UIx.setLabel(hWin.status, t, c)
+  end
+
+  UIx.bindSwitch(hk, hUI.switch, hWin.enableBtn, function(v)
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  local function hasted()
+    local ok, r = pcall(function()
+      if hasHaste then return hasHaste() end
+      return player:hasState((PlayerStates and PlayerStates.Haste) or 64)
+    end)
+    return ok and r == true
+  end
+
+  -- PZ: prueba varias formas (algunos servidores no marcan el icono)
+  local function inPzHaste()
+    if Shared.inPz() then return true end
+    local ok, res = pcall(function()
+      local tile = g_map.getTile(player:getPosition())
+      if not tile then return false end
+      if tile.isPz and tile:isPz() then return true end
+      if tile.hasFlag and tile:hasFlag((TileFlags and TileFlags.ProtectionZone) or 1) then return true end
+      return false
+    end)
+    if ok and res then return true end
+    local okb, bits = pcall(function() return player:getStates() end)
+    if okb and type(bits) == "number" then
+      local pz = (PlayerStates and PlayerStates.Pz) or 16384
+      if math.floor(bits / pz) % 2 == 1 then return true end
+    end
+    return false
+  end
+
+  -- Movimiento: cuenta como "moviendose" si cambio de sqm hace poco
+  local MOVE_MS = 1200
+  local lastPos, lastMoveAt = nil, -1000000
+  local function trackMove()
+    local p = player:getPosition()
+    if not p then return end
+    if not lastPos or p.x ~= lastPos.x or p.y ~= lastPos.y or p.z ~= lastPos.z then
+      lastMoveAt = now
+    end
+    lastPos = {x = p.x, y = p.y, z = p.z}
+    local okw, walking = pcall(function() return player:isWalking() end)
+    if okw and walking then lastMoveAt = now end
+  end
+
+  local lastTry = -1000000
+  local function retryIn(ms)
+    lastTry = now - (hk.every or 3) * 1000 + ms
+  end
+
+  onTextMessage(function(mode, text)
+    local t = (text or ""):lower()
+    if t:find("exhausted", 1, true) and now - lastTry < 1200 then
+      retryIn(1000)
+      Shared.supportBlock = now + 1000
+    end
+  end)
+
+  macro(200, function()
+    if not hk.enabled or not g_game.isOnline() then return end
+    local words = trim(hk.words or "")
+    if words == "" then setSt("Escribe el hechizo", "#ffaa44"); return end
+    trackMove()
+    if inPzHaste() then setSt("En PZ: no lanza", "#aaaaaa"); return end
+    if hasted() then setSt("Con haste", "#66ff66"); return end
+    if hk.onlyMoving and now - lastMoveAt > MOVE_MS then
+      setSt("Quieto: no lanza", "#aaaaaa")
+      return
+    end
+
+    -- Pausa minima entre intentos (por si el servidor no marca el haste)
+    if now - lastTry < (hk.every or 3) * 1000 then return end
+    if (hk.mana or 0) > 0 and mana() < hk.mana then
+      setSt("Esperando mana (" .. hk.mana .. ")", "#ffcc66")
+      return
+    end
+    if not Shared.supportReady() then
+      setSt("Esperando exhaust de soporte", "#aaaaaa")
+      return
+    end
+
+    say(words)
+    lastTry = now
+    Shared.lastSupport = now
+    setSt("Lanzando " .. words, "#88ff88")
+  end)
+end
 endSection(__sec)
