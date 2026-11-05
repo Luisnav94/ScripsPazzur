@@ -1,9 +1,16 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 21)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 22)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v22
+--   - NUEVO "Auto Haste" (pestana Tools): reemplaza al haste de
+--     Conditions. Solo lanza si no tienes haste y respeta el exhaust de
+--     soporte (2 s) junto con "Buff de ataque": ya no salen "You are
+--     exhausted" por chocar haste + utito tempo.
+--   - Buff de ataque: espera el exhaust de soporte antes de lanzar.
 --
 --  CAMBIOS v21
 --   - NUEVO "Auto Comida" (pestana HP), reemplaza al Eat Food de vBot:
@@ -153,6 +160,7 @@
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
 --  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
 --  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
+--  12. TOOLS - Auto Haste (reemplaza al haste de Conditions)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -301,7 +309,16 @@ local Shared = {
   -- Ultimo item usado por los scripts (para el contador de pociones)
   lastUseId      = 0,
   lastUseAt      = -1000000,
+  -- Grupo de hechizos de SOPORTE (haste, utito tempo, charge...):
+  -- comparten exhaust de 2 s. Si se lanzan juntos sale "You are exhausted".
+  lastSupport    = -1000000,
+  supportBlock   = 0,
 }
+local SUPPORT_GAP = 2000
+function Shared.supportReady()
+  return now - (Shared.lastSupport or -1000000) >= SUPPORT_GAP
+     and now >= (Shared.supportBlock or 0)
+end
 
 -- Jugadores con calavera blanca, roja o negra en pantalla (sin contar
 -- los de tu party). Lo usan "Equipo Auto" (modo PK) y "Alarma PK".
@@ -3978,9 +3995,14 @@ UtitoWindow < MainWindow
       return
     end
     if now - lastTry < 1000 then return end
+    if not Shared.supportReady() then
+      setUStatus("Esperando exhaust de soporte", "#aaaaaa")
+      return
+    end
 
     say(words)
     lastTry = now
+    Shared.lastSupport = now
     if not confirmSeen then lastUtito = now end
     setUStatus("Lanzando " .. words, "#88ff88")
   end)
@@ -8173,6 +8195,91 @@ AutoFoodWindow < MainWindow
     else
       setSt(info, "#ffaa44")
     end
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 12. TOOLS - AUTO HASTE (reemplaza al haste de "Conditions" de vBot)
+--  - Lanza el haste solo cuando NO lo tienes puesto.
+--  - Respeta el exhaust de soporte (2 s) junto con "Buff de ataque",
+--    asi ya no chocan y no sale "You are exhausted".
+--  - Si el servidor dice "exhausted", espera 1 s y reintenta.
+--  - No lanza en PZ. Mana minima opcional.
+--  IMPORTANTE: apaga el Haste de "Conditions" (pestana HP de vBot).
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local HK = "autoHasteV1"
+  if type(storage[HK]) ~= "table" then
+    storage[HK] = {enabled = false, words = "utani tempo hur", mana = 0, every = 3}
+  end
+  local hk = storage[HK]
+
+  UIx.header("AUTO HASTE")
+  local hUI = UIx.scriptPanel("Auto Haste")
+  hUI.setupBtn:setVisible(false)
+  pcall(function()
+    UI.Label("Hechizo de haste:")
+    UI.TextEdit(hk.words or "", function(w, t) hk.words = trim(t) end)
+    UI.Label("Mana minima (0 = sin limite):")
+    UI.TextEdit(tostring(hk.mana or 0), function(w, t) hk.mana = tonumber(t) or 0 end)
+  end)
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(hUI.status, t, c)
+  end
+
+  UIx.bindSwitch(hk, hUI.switch, nil, function(v)
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  local function hasted()
+    local ok, r = pcall(function()
+      if hasHaste then return hasHaste() end
+      return player:hasState((PlayerStates and PlayerStates.Haste) or 64)
+    end)
+    return ok and r == true
+  end
+
+  local lastTry = -1000000
+  local function retryIn(ms)
+    lastTry = now - (hk.every or 3) * 1000 + ms
+  end
+
+  onTextMessage(function(mode, text)
+    local t = (text or ""):lower()
+    if t:find("exhausted", 1, true) and now - lastTry < 1200 then
+      retryIn(1000)
+      Shared.supportBlock = now + 1000
+    end
+  end)
+
+  macro(200, function()
+    if not hk.enabled or not g_game.isOnline() then return end
+    local words = trim(hk.words or "")
+    if words == "" then setSt("Escribe el hechizo", "#ffaa44"); return end
+    if Shared.inPz() then setSt("En PZ", "#aaaaaa"); return end
+    if hasted() then setSt("Con haste", "#66ff66"); return end
+
+    -- Pausa minima entre intentos (por si el servidor no marca el haste)
+    if now - lastTry < (hk.every or 3) * 1000 then return end
+    if (hk.mana or 0) > 0 and mana() < hk.mana then
+      setSt("Esperando mana (" .. hk.mana .. ")", "#ffcc66")
+      return
+    end
+    if not Shared.supportReady() then
+      setSt("Esperando exhaust de soporte", "#aaaaaa")
+      return
+    end
+
+    say(words)
+    lastTry = now
+    Shared.lastSupport = now
+    setSt("Lanzando " .. words, "#88ff88")
   end)
 end
 endSection(__sec)
