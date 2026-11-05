@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 21)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 22)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v22
+--   - NUEVO "Bug Map (keypad)" (pestana Tools): keypad flotante de 8
+--     direcciones para Android. Manteniendo una flecha toca un sqm
+--     varios cuadros adelante y camina rodeando obstaculos.
 --
 --  CAMBIOS v21
 --   - NUEVO "Auto Comida" (pestana HP), reemplaza al Eat Food de vBot:
@@ -153,6 +158,7 @@
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
 --  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
 --  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
+--  12. TOOLS - Bug Map con keypad (Android / pantalla tactil)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -8173,6 +8179,318 @@ AutoFoodWindow < MainWindow
     else
       setSt(info, "#ffaa44")
     end
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 12. TOOLS - BUG MAP CON KEYPAD (para Android / pantalla tactil)
+--  - Muestra un keypad flotante de 8 direcciones encima del mapa.
+--  - Mientras mantienes presionada una flecha, "toca" un sqm varios
+--    cuadros adelante en esa direccion y el personaje camina hacia ahi
+--    rodeando obstaculos (como el Bug Map de teclado).
+--  - Solo toca sqm libres y sin items encima (para no usar escaleras,
+--    puertas ni cosas del piso). Si no hay ninguno, da un paso normal.
+--  - El boton del centro sirve para ARRASTRAR el keypad.
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local BK = "bugPadV1"
+  local DEF = {enabled = false, dist = 3, every = 150, size = 46, opacity = 70,
+               x = -1, y = -1}
+  if type(storage[BK]) ~= "table" then storage[BK] = {} end
+  local bk = storage[BK]
+  for k, v in pairs(DEF) do if bk[k] == nil then bk[k] = v end end
+
+  g_ui.loadUIFromString([[
+BugPadButton < Button
+  font: verdana-11px-rounded
+  text-align: center
+
+BugPadWindow < MainWindow
+  !text: tr('Bug Map (keypad)')
+  size: 290 270
+  @onEscape: self:hide()
+
+  Label
+    id: lDist
+    anchors.top: parent.top
+    anchors.left: parent.left
+    margin-top: 4
+    width: 180
+    text: Distancia del toque (sqm)
+
+  SpinBox
+    id: dist
+    anchors.verticalCenter: lDist.verticalCenter
+    anchors.left: lDist.right
+    width: 60
+    minimum: 1
+    maximum: 7
+    step: 1
+
+  Label
+    id: lEvery
+    anchors.top: lDist.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Repetir cada (ms)
+
+  SpinBox
+    id: every
+    anchors.verticalCenter: lEvery.verticalCenter
+    anchors.left: lEvery.right
+    width: 60
+    minimum: 50
+    maximum: 600
+    step: 25
+
+  Label
+    id: lSize
+    anchors.top: lEvery.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Tamano de los botones
+
+  SpinBox
+    id: size
+    anchors.verticalCenter: lSize.verticalCenter
+    anchors.left: lSize.right
+    width: 60
+    minimum: 30
+    maximum: 90
+    step: 4
+
+  Label
+    id: lOpacity
+    anchors.top: lSize.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 180
+    text: Opacidad (%)
+
+  SpinBox
+    id: opacity
+    anchors.verticalCenter: lOpacity.verticalCenter
+    anchors.left: lOpacity.right
+    width: 60
+    minimum: 20
+    maximum: 100
+    step: 10
+
+  Button
+    id: resetPos
+    anchors.top: lOpacity.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 12
+    text: Volver a poner el keypad abajo a la izquierda
+
+  VbHint
+    id: hint
+    anchors.top: resetPos.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Manten presionada una flecha para caminar. Arrastra el boton del centro para mover el keypad.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  local bUI = UIx.scriptPanel("Bug Map (keypad)")
+  local bWin = UI.createWindow('BugPadWindow', rootWidget)
+  bWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(bUI.status, t, c)
+    UIx.setLabel(bWin.status, t, c)
+  end
+
+  -- Direcciones: {dx, dy, texto, fila, columna, direccion de g_game.walk}
+  local DIRS = {
+    nw = {-1, -1, "\\", 0, 0, 7}, n = {0, -1, "^", 0, 1, 0}, ne = {1, -1, "/", 0, 2, 4},
+    w  = {-1,  0, "<",  1, 0, 3},                             e  = {1,  0, ">", 1, 2, 1},
+    sw = {-1,  1, "/",  2, 0, 6}, s = {0,  1, "v", 2, 1, 2}, se = {1,  1, "\\", 2, 2, 5},
+  }
+
+  -- ----- Keypad flotante -----
+  local pad, buttons, held = nil, {}, {}
+  local parent
+  pcall(function() parent = modules.game_interface.getMapPanel() end)
+  parent = parent or rootWidget
+
+  local function placeDefault()
+    local ps = parent:getSize()
+    local total = bk.size * 3
+    local px, py = parent:getX(), parent:getY()
+    pad:move(px + 10, py + ps.height - total - 10)
+  end
+
+  local function savePos()
+    if not pad then return end
+    bk.x = pad:getX() - parent:getX()
+    bk.y = pad:getY() - parent:getY()
+  end
+
+  local function buildPad()
+    if pad then pcall(function() pad:destroy() end) end
+    buttons, held = {}, {}
+    local s = bk.size
+    pad = g_ui.createWidget('UIWidget', parent)
+    pad:setSize({width = s * 3, height = s * 3})
+    pad:setOpacity((bk.opacity or 70) / 100)
+
+    for key, d in pairs(DIRS) do
+      local b = g_ui.createWidget('BugPadButton', pad)
+      b:setSize({width = s - 2, height = s - 2})
+      b:setText(d[3])
+      b:addAnchor(AnchorTop, 'parent', AnchorTop)
+      b:addAnchor(AnchorLeft, 'parent', AnchorLeft)
+      b:setMarginTop(d[4] * s)
+      b:setMarginLeft(d[5] * s)
+      b.onMousePress = function() held[key] = true; return true end
+      b.onMouseRelease = function() held[key] = false; return true end
+      buttons[key] = b
+    end
+
+    -- Centro: arrastrar el keypad
+    local c = g_ui.createWidget('BugPadButton', pad)
+    c:setSize({width = s - 2, height = s - 2})
+    c:setText("+")
+    c:addAnchor(AnchorTop, 'parent', AnchorTop)
+    c:addAnchor(AnchorLeft, 'parent', AnchorLeft)
+    c:setMarginTop(s)
+    c:setMarginLeft(s)
+    c:setDraggable(true)
+    c.onDragEnter = function(w, mp)
+      w.off = {x = mp.x - pad:getX(), y = mp.y - pad:getY()}
+      return true
+    end
+    c.onDragMove = function(w, mp)
+      if w.off then pad:move(mp.x - w.off.x, mp.y - w.off.y) end
+      return true
+    end
+    c.onDragLeave = function(w)
+      w.off = nil
+      savePos()
+      return true
+    end
+
+    if (bk.x or -1) >= 0 and (bk.y or -1) >= 0 then
+      pad:move(parent:getX() + bk.x, parent:getY() + bk.y)
+    else
+      placeDefault()
+    end
+    pad:setVisible(bk.enabled == true)
+    pad:raise()
+  end
+  buildPad()
+
+  -- ----- Ventana de configuracion -----
+
+  bWin.dist:setValue(bk.dist)
+  bWin.dist.onValueChange = function(w, v) bk.dist = v end
+  bWin.every:setValue(bk.every)
+  bWin.every.onValueChange = function(w, v) bk.every = v end
+  bWin.size:setValue(bk.size)
+  bWin.size.onValueChange = function(w, v) bk.size = v; buildPad() end
+  bWin.opacity:setValue(bk.opacity)
+  bWin.opacity.onValueChange = function(w, v)
+    bk.opacity = v
+    if pad then pad:setOpacity(v / 100) end
+  end
+  bWin.resetPos.onClick = function()
+    bk.x, bk.y = -1, -1
+    if pad then placeDefault(); savePos() end
+  end
+  bWin.closeBtn.onClick = function() bWin:hide() end
+  bUI.setupBtn.onClick = function() UIx.toggleWindow(bWin) end
+
+  UIx.bindSwitch(bk, bUI.switch, bWin.enableBtn, function(v)
+    if pad then pad:setVisible(v); if v then pad:raise() end end
+    held = {}
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  -- ----- Movimiento -----
+  local function isHeld(key)
+    local b = buttons[key]
+    if not b then return false end
+    local ok, p = pcall(function() return b:isPressed() end)
+    if ok then
+      if not p then held[key] = false end
+      return p == true
+    end
+    return held[key] == true
+  end
+
+  -- sqm libre y sin items encima (solo piso)
+  local function goodTile(pos)
+    local tile = g_map.getTile(pos)
+    if not tile then return nil end
+    local ok, walk = pcall(function() return tile:isWalkable() end)
+    if not ok or not walk then return nil end
+    local okc, crs = pcall(function() return tile:getCreatures() end)
+    if okc and crs and #crs > 0 then return nil end
+    local top = tile:getTopUseThing()
+    if not top then return nil end
+    local okg, ground = pcall(function() return top:isGround() end)
+    if not (okg and ground) then return nil end
+    return top
+  end
+
+  local nextClick = 0
+  macro(50, function()
+    if not bk.enabled or not g_game.isOnline() then return end
+    local dirKey
+    for key in pairs(DIRS) do
+      if isHeld(key) then dirKey = key; break end
+    end
+    if not dirKey then
+      setSt("Activo - manten una flecha", "#66ff66")
+      return
+    end
+    if now < nextClick then return end
+    nextClick = now + (bk.every or 150)
+
+    local d, me = DIRS[dirKey], pos()
+    for dist = (bk.dist or 3), 1, -1 do
+      local p = {x = me.x + d[1] * dist, y = me.y + d[2] * dist, z = me.z}
+      local thing = goodTile(p)
+      if thing then
+        g_game.use(thing)
+        setSt("Caminando " .. dirKey:upper() .. " (" .. dist .. " sqm)", "#88ccff")
+        return
+      end
+    end
+    -- Nada libre adelante: paso normal
+    pcall(function() g_game.walk(d[6]) end)
+    setSt("Paso normal " .. dirKey:upper(), "#ffaa44")
   end)
 end
 endSection(__sec)
