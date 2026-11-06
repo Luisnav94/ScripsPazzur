@@ -1,9 +1,15 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 24b - sin next)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 25)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v25
+--   - Equipo Auto: nuevo Modo PVP con SUS PROPIOS sets (boton "Sets PvP"
+--     en la ventana): Ataque PvP / Defensa PvP, HP y caida propios, y
+--     opcion de poner defensa PvP si hay un PK en pantalla.
+--     Modo: WAR -> CAVE -> PK -> PVP.
 --
 --  CAMBIOS v24
 --   - NUEVO "Exiva en minimapa" (pestana Tools): lee los mensajes de
@@ -168,7 +174,7 @@
 --   2. MAIN  - Smart Imbue (ventana, + escudo y backpack)
 --   3. HP    - War Healer (ventana)
 --              Anillo y Amuleto (ventana, UNICO script de anillo/SSA)
---              Equipo Auto (ventana, set completo, modos WAR/CAVE/PK)
+--              Equipo Auto (ventana, set completo, modos WAR/CAVE/PK/PVP)
 --   4. TOOLS - Buff de ataque (ventana), War Chase, Autosell
 --   5. CAVE  - Dynamic Lure (ventana)
 --   6. HP    - Party Support (UH, mana y hechizo para amigos)
@@ -3197,8 +3203,12 @@ end
 -- botas, anillo, ammo y escudo)
 -- Si "Anillo y Amuleto" esta activo, este script NO toca anillo
 -- ni amuleto (se los deja a ese script).
--- Modos: WAR, CAVE y PK (PK = valores de WAR + defensa si hay un
--- jugador con calavera blanca, roja o negra en pantalla).
+-- Modos: WAR, CAVE, PK y PVP.
+--   PK  = valores de WAR + defensa si hay un jugador con calavera
+--         blanca, roja o negra en pantalla.
+--   PVP = usa SUS PROPIOS sets (Ataque PvP / Defensa PvP) y sus propios
+--         valores de HP; opcional: defensa si hay un PK en pantalla.
+--         Se configuran en el boton "Sets PvP" de la ventana.
 -- ============================================================
 do
   local EK           = "equipAutoV2"
@@ -3232,12 +3242,25 @@ do
     }
   end
   local ec = storage[EK]
-  if ec.mode ~= "war" and ec.mode ~= "cave" and ec.mode ~= "pk" then ec.mode = "war" end
+  if ec.mode ~= "war" and ec.mode ~= "cave" and ec.mode ~= "pk" and ec.mode ~= "pvp" then
+    ec.mode = "war"
+  end
   ec.war, ec.cave = ec.war or {hp = 71, drop = 15}, ec.cave or {hp = 61, drop = 25}
   ec.attack, ec.defense = ec.attack or {}, ec.defense or {}
   ec.attackHp, ec.holdSec = ec.attackHp or 91, ec.holdSec or 5
   if ec.openBags == nil then ec.openBags = true end
   ec.manualSec = ec.manualSec or 15
+  -- Modo PVP: sus propios sets y valores (empiezan como copia de los normales)
+  ec.pvp = ec.pvp or {hp = 71, drop = 15, pkDef = true}
+  if ec.pvp.pkDef == nil then ec.pvp.pkDef = true end
+  if type(ec.pvpAttack) ~= "table" then
+    ec.pvpAttack = {}
+    for k, v in pairs(ec.attack) do ec.pvpAttack[k] = v end
+  end
+  if type(ec.pvpDefense) ~= "table" then
+    ec.pvpDefense = {}
+    for k, v in pairs(ec.defense) do ec.pvpDefense[k] = v end
+  end
 
   g_ui.loadUIFromString([[
 EquipColumn < Panel
@@ -3349,7 +3372,7 @@ EquipAutoWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
-    text: Arrastra los items a cada casilla. Casilla vacia = ese slot no se toca. Si 'Anillo y Amuleto' esta activo, aqui no se cambian anillo ni amuleto. Modo PK = valores de WAR + defensa si hay un PK (calavera blanca, roja o negra) en pantalla.
+    text: Arrastra los items a cada casilla. Casilla vacia = ese slot no se toca. Si 'Anillo y Amuleto' esta activo, aqui no se cambian anillo ni amuleto. Modo PK = valores de WAR + defensa si hay un PK en pantalla. Modo PVP = sus propios sets (boton Sets PvP).
 
   HorizontalSeparator
     id: sep1
@@ -3554,6 +3577,131 @@ EquipAutoWindow < MainWindow
     text: Modo: WAR
 
   Button
+    id: pvpBtn
+    anchors.bottom: parent.bottom
+    anchors.left: modeBtn.right
+    margin-left: 6
+    width: 80
+    text: Sets PvP
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+
+EquipPvpWindow < MainWindow
+  !text: tr('Equipo Auto - Sets PvP')
+  size: 440 330
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tSets
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Sets del modo PVP
+
+  Label
+    id: lAtk
+    anchors.top: tSets.bottom
+    anchors.left: parent.left
+    margin-top: 28
+    width: 54
+    color: #66ff66
+    text: Ataque
+
+  Label
+    id: lDef
+    anchors.top: tSets.bottom
+    anchors.left: parent.left
+    margin-top: 74
+    width: 54
+    color: #ff8866
+    text: Defensa
+
+  Panel
+    id: cols
+    anchors.top: tSets.bottom
+    anchors.left: lAtk.right
+    anchors.right: parent.right
+    margin-top: 4
+    height: 98
+    layout:
+      type: horizontalBox
+      spacing: 2
+
+  VbHint
+    id: hint
+    anchors.top: cols.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Estos items solo se usan en Modo: PVP. Casilla vacia = ese slot no se toca.
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: hint.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+
+  Label
+    id: lPvp
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 45
+    color: #ffaa00
+    text: PVP
+
+  Label
+    id: lPvpHp
+    anchors.verticalCenter: lPvp.verticalCenter
+    anchors.left: lPvp.right
+    width: 70
+    text: HP % <=
+
+  SpinBox
+    id: pvpHp
+    anchors.verticalCenter: lPvp.verticalCenter
+    anchors.left: lPvpHp.right
+    width: 45
+    minimum: 0
+    maximum: 100
+
+  Label
+    id: lPvpDrop
+    anchors.verticalCenter: lPvp.verticalCenter
+    anchors.left: pvpHp.right
+    margin-left: 14
+    width: 115
+    text: o caida brusca %
+
+  SpinBox
+    id: pvpDrop
+    anchors.verticalCenter: lPvp.verticalCenter
+    anchors.left: lPvpDrop.right
+    width: 45
+    minimum: 1
+    maximum: 100
+
+  CheckBox
+    id: pkDef
+    anchors.top: lPvp.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 14
+    text: Poner defensa PvP si hay un PK en pantalla
+
+  Button
+    id: copyBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 170
+    text: Copiar sets normales aqui
+
+  Button
     id: closeBtn
     anchors.bottom: parent.bottom
     anchors.right: parent.right
@@ -3588,6 +3736,36 @@ EquipAutoWindow < MainWindow
   eWin.atkHp.onValueChange     = function(w, v) ec.attackHp = v end
   eWin.hold.onValueChange      = function(w, v) ec.holdSec = v end
   eWin.manualSec.onValueChange = function(w, v) ec.manualSec = v end
+  -- ----- Ventana Sets PvP -----
+  local pWin = UI.createWindow('EquipPvpWindow', rootWidget)
+  pWin:hide()
+  local pvpCols = {}
+  for _, s in ipairs(SLOTS) do
+    local col = UI.createWidget('EquipColumn', pWin.cols)
+    col.name:setText(s.name)
+    col.atk:setItemId(ec.pvpAttack[s.key] or 0)
+    col.def:setItemId(ec.pvpDefense[s.key] or 0)
+    col.atk.onItemChange = function(w) ec.pvpAttack[s.key]  = w:getItemId() end
+    col.def.onItemChange = function(w) ec.pvpDefense[s.key] = w:getItemId() end
+    pvpCols[s.key] = col
+  end
+  pWin.pvpHp:setValue(ec.pvp.hp)
+  pWin.pvpDrop:setValue(ec.pvp.drop)
+  pWin.pvpHp.onValueChange   = function(w, v) ec.pvp.hp = v end
+  pWin.pvpDrop.onValueChange = function(w, v) ec.pvp.drop = v end
+  pWin.pkDef:setChecked(ec.pvp.pkDef)
+  pWin.pkDef.onCheckChange = function(w, c) ec.pvp.pkDef = c end
+  pWin.copyBtn.onClick = function()
+    for _, s in ipairs(SLOTS) do
+      ec.pvpAttack[s.key]  = ec.attack[s.key] or 0
+      ec.pvpDefense[s.key] = ec.defense[s.key] or 0
+      pvpCols[s.key].atk:setItemId(ec.pvpAttack[s.key])
+      pvpCols[s.key].def:setItemId(ec.pvpDefense[s.key])
+    end
+  end
+  pWin.closeBtn.onClick = function() pWin:hide() end
+  eWin.pvpBtn.onClick = function() UIx.toggleWindow(pWin) end
+
   eWin.openBags:setChecked(ec.openBags)
   eWin.openBags.onCheckChange = function(w, c) ec.openBags = c end
   EquipCore.bindKeepBag(eWin.keepBag)
@@ -3597,7 +3775,7 @@ EquipAutoWindow < MainWindow
     eUI.modeBtn:setText(txt)
     eWin.modeBtn:setText(txt)
   end
-  local NEXT_MODE = {war = "cave", cave = "pk", pk = "war"}
+  local NEXT_MODE = {war = "cave", cave = "pk", pk = "pvp", pvp = "war"}
   local function toggleMode()
     ec.mode = NEXT_MODE[ec.mode] or "war"
     updateMode()
@@ -3662,14 +3840,18 @@ EquipAutoWindow < MainWindow
     if not ec.enabled or not g_game.isOnline() then return end
     local hp = hppercent()
     if not hp then return end
-    -- El modo PK usa los valores de HP / caida de WAR
+    -- El modo PK usa los valores de HP / caida de WAR.
+    -- El modo PVP usa sus propios valores y sus propios sets.
     local m = ec[ec.mode] or ec.war
+    local isPvp = ec.mode == "pvp"
+    local atkSet = isPvp and ec.pvpAttack or ec.attack
+    local defSet = isPvp and ec.pvpDefense or ec.defense
 
     local manualDef = false
     for _, key in ipairs(ORDER) do
       if managed(key) then
         local mid = EquipCore.track(SLOT_OF[key], ec.manualSec)
-        local d, a = ec.defense[key] or 0, ec.attack[key] or 0
+        local d, a = defSet[key] or 0, atkSet[key] or 0
         if mid and d > 0 and d ~= a and mid == d then manualDef = true end
       end
     end
@@ -3679,7 +3861,9 @@ EquipAutoWindow < MainWindow
     end
 
     local pk = nil
-    if ec.mode == "pk" and not Shared.inPz() then pk = Shared.pkList()[1] end
+    if (ec.mode == "pk" or (isPvp and ec.pvp.pkDef)) and not Shared.inPz() then
+      pk = Shared.pkList()[1]
+    end
 
     if pk or hp <= m.hp or burstDetected(hp, m.drop) then
       inDefense = true
@@ -3688,15 +3872,16 @@ EquipAutoWindow < MainWindow
     end
 
     if inDefense then
-      setStatus(pk and ("DEFENSA (PK: " .. (pk:getName() or "?") .. ")") or "DEFENSA", "#ff8866")
-      equip(ec.defense, true)
+      local dTxt = isPvp and "DEFENSA PvP" or "DEFENSA"
+      setStatus(pk and (dTxt .. " (PK: " .. (pk:getName() or "?") .. ")") or dTxt, "#ff8866")
+      equip(defSet, true)
       if now < defenseUntil or hp < ec.attackHp then return end
       inDefense = false
     end
 
     if hp >= ec.attackHp then
-      setStatus("ATAQUE", "#66ff66")
-      equip(ec.attack, false)
+      setStatus(isPvp and "ATAQUE PvP" or "ATAQUE", "#66ff66")
+      equip(atkSet, false)
     end
   end
   macro(50, eaTick)
