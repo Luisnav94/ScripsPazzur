@@ -9,6 +9,8 @@
 --   - NUEVO "Exiva en minimapa" (pestana Tools): lee los mensajes de
 --     exiva y pone una bandera en la zona aproximada del jugador.
 --     Con varios exivas desde lugares distintos cruza las zonas.
+--     La bandera se ve en todos los pisos (no se pierde al cambiar de
+--     nivel); en los otros pisos dice en que piso esta el jugador.
 --
 --  CAMBIOS v23
 --   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
@@ -8670,13 +8672,19 @@ ExivaMapWindow < MainWindow
     return mm
   end
 
-  local flags = {}   -- [nombre] = {pos, icon, desc}
+  -- La bandera se pone en TODOS los pisos (0-15) en el mismo x,y.
+  -- Asi no desaparece al subir o bajar de nivel. En el piso real dice
+  -- "piso real", en los demas dice en que piso esta.
+  local flags = {}   -- [nombre] = lista de {pos, icon, desc}
+  local ICON_REAL, ICON_OTHER = 1, 2
   local function removeFlag(name)
-    local f = flags[name]
-    if not f then return end
+    local list = flags[name]
+    if not list then return end
     local m = getMinimap()
     if m and m.removeFlag then
-      pcall(function() m:removeFlag(f.pos, f.icon, f.desc) end)
+      for _, f in ipairs(list) do
+        pcall(function() m:removeFlag(f.pos, f.icon, f.desc) end)
+      end
     end
     flags[name] = nil
   end
@@ -8684,10 +8692,23 @@ ExivaMapWindow < MainWindow
     removeFlag(name)
     local m = getMinimap()
     if not m then return false end
-    local icon = 1
-    local ok = pcall(function() m:addFlag(p, icon, desc) end)
-    if ok then flags[name] = {pos = p, icon = icon, desc = desc} end
-    return ok
+    local list, any = {}, false
+    for z = 0, 15 do
+      local fp = {x = p.x, y = p.y, z = z}
+      local icon, d
+      if z == p.z then
+        icon, d = ICON_REAL, desc .. " (piso real)"
+      else
+        icon, d = ICON_OTHER, desc .. " (esta en el piso z=" .. p.z .. ")"
+      end
+      local ok = pcall(function() m:addFlag(fp, icon, d) end)
+      if ok then
+        any = true
+        table.insert(list, {pos = fp, icon = icon, desc = d})
+      end
+    end
+    flags[name] = list
+    return any
   end
 
   -- ----- Geometria de exiva -----
