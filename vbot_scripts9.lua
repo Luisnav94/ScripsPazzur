@@ -8718,7 +8718,10 @@ ExivaMapWindow < MainWindow
 
   -- Si el minimapa cambia de piso, mover las banderas a ese piso
   macro(300, function()
-    if not next(flags) then return end
+    -- (sin next(): no existe en el bot)
+    local hasFlags = false
+    for _ in pairs(flags) do hasFlags = true; break end
+    if not hasFlags then return end
     local z = viewZ()
     if not z then return end
     for name, f in pairs(flags) do
