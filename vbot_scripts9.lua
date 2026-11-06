@@ -8797,6 +8797,9 @@ ExivaMapWindow < MainWindow
     local step = R > 1000 and 40 or (R > 300 and 12 or (R > 100 and 4 or 2))
     local cx, cy = tight.from.x, tight.from.y
     local sw, sx, sy, sxx, syy, n = 0, 0, 0, 0, 0, 0
+    -- extremos de la zona vistos desde la lectura mas nueva (set[1])
+    local o = set[1].from
+    local nearD, farD, nearP, farP = math.huge, -1, nil, nil
     for x = cx - R, cx + R, step do
       for y = cy - R, cy + R, step do
         local ok, far = true, 0
@@ -8806,6 +8809,9 @@ ExivaMapWindow < MainWindow
           if d > far then far = d end
         end
         if ok then
+          local dl = math.max(math.abs(x - o.x), math.abs(y - o.y))
+          if dl < nearD then nearD, nearP = dl, {x = x, y = y} end
+          if dl > farD and dl <= 1500 then farD, farP = dl, {x = x, y = y} end
           local w = 1 / (far * far + 1)
           sw, sx, sy = sw + w, sx + w * x, sy + w * y
           sxx, syy = sxx + w * x * x, syy + w * y * y
@@ -8817,7 +8823,8 @@ ExivaMapWindow < MainWindow
     local mx, my = sx / sw, sy / sw
     local var = (sxx / sw - mx * mx) + (syy / sw - my * my)
     local err = math.floor(math.sqrt(math.max(0, var)) + step)
-    return {x = math.floor(mx + 0.5), y = math.floor(my + 0.5)}, err
+    return {x = math.floor(mx + 0.5), y = math.floor(my + 0.5)}, err,
+           {near = nearP, far = farP, nearD = nearD, farD = farD}
   end
 
   -- Usa la lectura mas nueva y le suma las anteriores que coincidan
@@ -8827,7 +8834,7 @@ ExivaMapWindow < MainWindow
     if not list or #list == 0 then return nil end
     local last = list[#list]
     local set = {last}
-    local best, err = nil, nil
+    local best, err, zone = nil, nil, nil
     for i = #list - 1, 1, -1 do
       local r = list[i]
       -- lecturas desde el mismo sqm no aportan nada nuevo
@@ -8839,8 +8846,8 @@ ExivaMapWindow < MainWindow
         local try = {}
         for _, u in ipairs(set) do table.insert(try, u) end
         table.insert(try, r)
-        local p2, e2 = solve(try)
-        if p2 then set, best, err = try, p2, e2 end
+        local p2, e2, z2 = solve(try)
+        if p2 then set, best, err, zone = try, p2, e2, z2 end
       end
     end
 
@@ -8856,7 +8863,7 @@ ExivaMapWindow < MainWindow
              1, (last.range == "vfar") and nil or math.floor((rg[2] - rg[1]) / 2)
     end
     best.z = last.z
-    return best, #set, err
+    return best, #set, err, zone
   end
 
   local lastFound = nil
@@ -8872,7 +8879,7 @@ ExivaMapWindow < MainWindow
                         range = range, dir = dir, at = now})
     while #list > MAX_READ do table.remove(list, 1) end
 
-    local p, nUsed, err = estimate(name)
+    local p, nUsed, err, zone = estimate(name)
     if not p then return end
     local where = RANGE[range][4]
     if dir then where = where .. " al " .. (DIR_ES[dir] or dir) end
@@ -8894,6 +8901,18 @@ ExivaMapWindow < MainWindow
       end
     else
       pts = {{x = p.x, y = p.y, desc = name .. ": " .. where .. " (" .. prec .. ")"}}
+      -- Zona grande: marcar tambien donde empieza y termina, para que
+      -- veas el tramo donde puede estar (el jugador esta ENTRE esas marcas)
+      if zone and err and err > 40 then
+        if zone.near then
+          table.insert(pts, {x = zone.near.x, y = zone.near.y,
+            desc = name .. ": zona desde aqui (lo mas cerca posible)"})
+        end
+        if zone.far then
+          table.insert(pts, {x = zone.far.x, y = zone.far.y,
+            desc = name .. ": zona hasta aqui (lo mas lejos posible)"})
+        end
+      end
     end
     lastFound = {x = pts[1].x, y = pts[1].y, z = p.z}
     local okf, marked = pcall(putFlags, name, pts, p.z)
