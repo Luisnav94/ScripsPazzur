@@ -8692,41 +8692,48 @@ ExivaMapWindow < MainWindow
     return z
   end
 
+  -- flags[nombre] = {pts = {{x, y, desc}}, realZ, z, placed = {{pos, icon, desc}}}
   local function removeFlag(name)
     local f = flags[name]
     if not f then return end
     local m = getMinimap()
     if m and m.removeFlag then
-      pcall(function() m:removeFlag(f.pos, f.icon, f.desc) end)
+      for _, pl in ipairs(f.placed or {}) do
+        pcall(function() m:removeFlag(pl.pos, pl.icon, pl.desc) end)
+      end
     end
     flags[name] = nil
   end
-  local function putFlag(name, p, desc)
+  local function putFlags(name, pts, realZ)
     removeFlag(name)
     local m = getMinimap()
     if not m then return false end
-    local z = viewZ() or p.z
-    local fp = {x = p.x, y = p.y, z = z}
-    local d = desc
-    if z ~= p.z then d = desc .. " [esta en z=" .. p.z .. ", viendo z=" .. z .. "]" end
-    local ok = pcall(function() m:addFlag(fp, 1, d) end)
-    if ok then
-      flags[name] = {pos = fp, icon = 1, desc = d, base = desc, realPos = p}
+    local z = viewZ() or realZ
+    local placed, any = {}, false
+    for _, pt in ipairs(pts) do
+      local fp = {x = pt.x, y = pt.y, z = z}
+      local d = pt.desc
+      if z ~= realZ then d = d .. " [esta en z=" .. realZ .. ", viendo z=" .. z .. "]" end
+      local ok = pcall(function() m:addFlag(fp, 1, d) end)
+      if ok then
+        any = true
+        table.insert(placed, {pos = fp, icon = 1, desc = d})
+      end
     end
-    return ok
+    flags[name] = {pts = pts, realZ = realZ, z = z, placed = placed}
+    return any
   end
 
   -- Si el minimapa cambia de piso, mover las banderas a ese piso
   macro(300, function()
-    -- revisa si hay banderas (la funcion next no existe en el bot)
     local hasFlags = false
     for _ in pairs(flags) do hasFlags = true; break end
     if not hasFlags then return end
     local z = viewZ()
     if not z then return end
     for name, f in pairs(flags) do
-      if f.pos.z ~= z then
-        pcall(function() putFlag(name, f.realPos, f.base) end)
+      if f.z ~= z then
+        pcall(function() putFlags(name, f.pts, f.realZ) end)
       end
     end
   end)
@@ -8743,20 +8750,25 @@ ExivaMapWindow < MainWindow
     ["south-east"] = "sureste", ["south-west"] = "suroeste",
   }
   -- {min, max, distancia para marcar si solo hay 1 lectura, texto}
+  -- {min, max, distancia para marcar con 1 sola lectura, texto}
+  -- (mismos limites que usa el servidor: < 5 | < 101 | < 275 | 275+)
   local RANGE = {
     near   = {0, 4, 0, "al lado (menos de 5 sqm)"},
-    normal = {5, 100, 50, "cerca (5-100 sqm)"},
+    normal = {5, 100, 55, "cerca (5-100 sqm)"},
     far    = {101, 274, 185, "lejos (101-274 sqm)"},
-    vfar   = {275, 700, 350, "muy lejos (275+ sqm)"},
+    vfar   = {275, 2500, 320, "muy lejos (275+ sqm)"},
   }
-  local TAN = 2.4142   -- tan(67.5): limite entre direccion recta y diagonal
-
+  -- Igual que el servidor: |dy/dx| < 0.4142 = este/oeste,
+  -- < 2.4142 = diagonal, si no = norte/sur
   local function sectorOf(dx, dy)
-    local ax, ay = math.abs(dx), math.abs(dy)
-    if ay > TAN * ax then return dy < 0 and "north" or "south" end
-    if ax > TAN * ay then return dx > 0 and "east" or "west" end
-    if dx > 0 then return dy < 0 and "north-east" or "south-east" end
-    return dy < 0 and "north-west" or "south-west"
+    if dx == 0 then return dy < 0 and "north" or "south" end
+    local t = math.abs(dy / dx)
+    if t < 0.4142 then return dx > 0 and "east" or "west" end
+    if t < 2.4142 then
+      if dx > 0 then return dy < 0 and "north-east" or "south-east" end
+      return dy < 0 and "north-west" or "south-west"
+    end
+    return dy < 0 and "north" or "south"
   end
 
   local function fits(r, x, y)
@@ -8764,46 +8776,87 @@ ExivaMapWindow < MainWindow
     local d = math.max(math.abs(dx), math.abs(dy))
     local rg = RANGE[r.range]
     if d < rg[1] or d > rg[2] then return false end
-    if r.dir and d > 0 and sectorOf(dx, dy) ~= r.dir then return false end
+    if r.dir and d >= 5 and sectorOf(dx, dy) ~= r.dir then return false end
     return true
   end
 
-  local readings = {}   -- [nombre] = lista de lecturas
-  local READ_TTL = 5 * 60000
+  local readings = {}       -- [nombre] = lista de lecturas
+  local READ_TTL = 4 * 60000  -- las que ya no coinciden se descartan solas
+  local MAX_READ = 8
 
-  -- Calcula el centro de la zona donde encajan todas las lecturas
+  -- Puntos donde encajan TODAS las lecturas del grupo.
+  -- Busca solo dentro del rango de la lectura mas estrecha.
+  -- Promedio con PESO: los puntos mas cercanos pesan mas (1/d^2), porque
+  -- "muy lejos" no tiene limite y el promedio simple se iba muy lejos.
+  local function solve(set)
+    local tight = set[1]
+    for _, r in ipairs(set) do
+      if RANGE[r.range][2] < RANGE[tight.range][2] then tight = r end
+    end
+    local R = RANGE[tight.range][2]
+    local step = R > 1000 and 40 or (R > 300 and 12 or (R > 100 and 4 or 2))
+    local cx, cy = tight.from.x, tight.from.y
+    local sw, sx, sy, sxx, syy, n = 0, 0, 0, 0, 0, 0
+    for x = cx - R, cx + R, step do
+      for y = cy - R, cy + R, step do
+        local ok, far = true, 0
+        for _, r in ipairs(set) do
+          if not fits(r, x, y) then ok = false; break end
+          local d = math.max(math.abs(x - r.from.x), math.abs(y - r.from.y))
+          if d > far then far = d end
+        end
+        if ok then
+          local w = 1 / (far * far + 1)
+          sw, sx, sy = sw + w, sx + w * x, sy + w * y
+          sxx, syy = sxx + w * x * x, syy + w * y * y
+          n = n + 1
+        end
+      end
+    end
+    if n == 0 then return nil end
+    local mx, my = sx / sw, sy / sw
+    local var = (sxx / sw - mx * mx) + (syy / sw - my * my)
+    local err = math.floor(math.sqrt(math.max(0, var)) + step)
+    return {x = math.floor(mx + 0.5), y = math.floor(my + 0.5)}, err
+  end
+
+  -- Usa la lectura mas nueva y le suma las anteriores que coincidan
+  -- (si el jugador se movio, las que ya no coinciden se descartan).
   local function estimate(name)
     local list = readings[name]
     if not list or #list == 0 then return nil end
     local last = list[#list]
-    local used = list
-    for _ = 1, 2 do
-      local box = 0
-      for _, r in ipairs(used) do box = math.max(box, RANGE[r.range][2]) end
-      local cx, cy = last.from.x, last.from.y
-      local step = box > 300 and 10 or (box > 100 and 5 or 2)
-      local sx, sy, n = 0, 0, 0
-      for x = cx - box - 300, cx + box + 300, step do
-        for y = cy - box - 300, cy + box + 300, step do
-          local ok = true
-          for _, r in ipairs(used) do
-            if not fits(r, x, y) then ok = false; break end
-          end
-          if ok then sx, sy, n = sx + x, sy + y, n + 1 end
-        end
+    local set = {last}
+    local best, err = nil, nil
+    for i = #list - 1, 1, -1 do
+      local r = list[i]
+      -- lecturas desde el mismo sqm no aportan nada nuevo
+      local same = false
+      for _, u in ipairs(set) do
+        if u.from.x == r.from.x and u.from.y == r.from.y then same = true; break end
       end
-      if n > 0 then
-        return {x = math.floor(sx / n + 0.5), y = math.floor(sy / n + 0.5),
-                z = last.z}, #used, n * step * step
+      if not same then
+        local try = {}
+        for _, u in ipairs(set) do table.insert(try, u) end
+        table.insert(try, r)
+        local p2, e2 = solve(try)
+        if p2 then set, best, err = try, p2, e2 end
       end
-      used = {last}   -- no encajan (se movio): usar solo la ultima
     end
-    -- Respaldo: punto en la direccion a la distancia media
-    local v = DIRV[last.dir or "north"] or {0, 0}
-    local d = RANGE[last.range][3]
-    local k = (v[1] ~= 0 and v[2] ~= 0) and 0.7071 or 1
-    return {x = math.floor(last.from.x + v[1] * d * k),
-            y = math.floor(last.from.y + v[2] * d * k), z = last.z}, 1, nil
+
+    if #set == 1 then
+      -- Una sola lectura: punto en la direccion a la distancia tipica
+      if last.range == "near" or not last.dir then
+        return {x = last.from.x, y = last.from.y, z = last.z}, 1, 4
+      end
+      local v = DIRV[last.dir] or {0, 0}
+      local d = RANGE[last.range][3]
+      local rg = RANGE[last.range]
+      return {x = last.from.x + v[1] * d, y = last.from.y + v[2] * d, z = last.z},
+             1, (last.range == "vfar") and nil or math.floor((rg[2] - rg[1]) / 2)
+    end
+    best.z = last.z
+    return best, #set, err
   end
 
   local lastFound = nil
@@ -8812,29 +8865,58 @@ ExivaMapWindow < MainWindow
     if not me then return end
     readings[name] = readings[name] or {}
     local list = readings[name]
-    -- quitar viejas y limitar a 4
     for i = #list, 1, -1 do
       if now - list[i].at > READ_TTL then table.remove(list, i) end
     end
     table.insert(list, {from = {x = me.x, y = me.y}, z = me.z + (dz or 0),
                         range = range, dir = dir, at = now})
-    while #list > 4 do table.remove(list, 1) end
+    while #list > MAX_READ do table.remove(list, 1) end
 
-    local p, nUsed, area = estimate(name)
+    local p, nUsed, err = estimate(name)
     if not p then return end
     local where = RANGE[range][4]
     if dir then where = where .. " al " .. (DIR_ES[dir] or dir) end
     if dz == -1 then where = where .. ", piso ARRIBA" end
     if dz == 1 then where = where .. ", piso ABAJO" end
 
-    local desc = name .. ": " .. where
-    lastFound = p
-    local okf, marked = pcall(putFlag, name, p, desc)
+    local last = list[#list]
+    local line = (nUsed == 1 and last.range == "vfar" and last.dir)
+    local prec = err and ("+/- " .. err .. " sqm") or "solo direccion"
+    local pts
+    if line then
+      -- "Muy lejos" no dice cuanto: se marca una LINEA de banderas en esa
+      -- direccion. Donde se crucen las lineas de 2 exivas, ahi esta.
+      local v = DIRV[last.dir] or {0, 0}
+      pts = {}
+      for _, d in ipairs({300, 450, 650, 900, 1200}) do
+        table.insert(pts, {x = last.from.x + v[1] * d, y = last.from.y + v[2] * d,
+          desc = name .. ": ~" .. d .. " sqm al " .. (DIR_ES[last.dir] or last.dir)})
+      end
+    else
+      pts = {{x = p.x, y = p.y, desc = name .. ": " .. where .. " (" .. prec .. ")"}}
+    end
+    lastFound = {x = pts[1].x, y = pts[1].y, z = p.z}
+    local okf, marked = pcall(putFlags, name, pts, p.z)
     marked = okf and marked
-    setResult(name .. "\n" .. where
-      .. "\nAprox: " .. p.x .. ", " .. p.y .. ", " .. p.z
-      .. "  (lecturas: " .. nUsed .. ")"
-      .. (area and ("\nZona aprox: " .. math.floor(area) .. " sqm2") or ""))
+
+    local tip
+    if line then
+      tip = "Camina HACIA esa direccion con el exiva automatico: cuando cambie a 'lejos' la marca queda a ~50 sqm"
+    elseif last.range == "vfar" then
+      tip = "Sigue caminando hacia alla: al pasar a 'lejos' se vuelve precisa"
+    elseif nUsed == 1 then
+      tip = "Camina 30-50 sqm de lado y haz otro exiva"
+    elseif err and err > 25 then
+      tip = "Acercate y haz otro exiva para afinar"
+    else
+      tip = "Ubicacion bastante precisa"
+    end
+    local posTxt = line and ("Direccion: " .. (DIR_ES[last.dir] or last.dir) .. " (sin distancia)")
+      or ("Aprox: " .. p.x .. ", " .. p.y .. ", " .. p.z .. "  (" .. prec .. ")")
+    setResult(name .. ": " .. where
+      .. "\n" .. posTxt
+      .. "\nLecturas usadas: " .. nUsed .. " de " .. #list
+      .. "\n" .. tip)
     if marked then
       setSt("Marcado en minimapa: " .. name, "#66ff66")
     else
