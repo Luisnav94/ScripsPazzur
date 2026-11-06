@@ -9,8 +9,8 @@
 --   - NUEVO "Exiva en minimapa" (pestana Tools): lee los mensajes de
 --     exiva y pone una bandera en la zona aproximada del jugador.
 --     Con varios exivas desde lugares distintos cruza las zonas.
---     La bandera se ve en todos los pisos (no se pierde al cambiar de
---     nivel); en los otros pisos dice en que piso esta el jugador.
+--     Al cambiar de piso la bandera se mueve sola a tu piso (mismo
+--     x,y) y dice en que piso esta realmente el jugador.
 --
 --  CAMBIOS v23
 --   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
@@ -8672,19 +8672,17 @@ ExivaMapWindow < MainWindow
     return mm
   end
 
-  -- La bandera se pone en TODOS los pisos (0-15) en el mismo x,y.
-  -- Asi no desaparece al subir o bajar de nivel. En el piso real dice
-  -- "piso real", en los demas dice en que piso esta.
-  local flags = {}   -- [nombre] = lista de {pos, icon, desc}
-  local ICON_REAL, ICON_OTHER = 1, 2
+  -- Una sola bandera por jugador, como en la version que si marcaba.
+  -- Siempre se pone en el piso donde estas TU: si subes o bajas de
+  -- nivel, se mueve sola a tu piso nuevo (mismo x,y). La descripcion
+  -- dice en que piso esta realmente el jugador.
+  local flags = {}   -- [nombre] = {pos, icon, desc, base, realZ}
   local function removeFlag(name)
-    local list = flags[name]
-    if not list then return end
+    local f = flags[name]
+    if not f then return end
     local m = getMinimap()
     if m and m.removeFlag then
-      for _, f in ipairs(list) do
-        pcall(function() m:removeFlag(f.pos, f.icon, f.desc) end)
-      end
+      pcall(function() m:removeFlag(f.pos, f.icon, f.desc) end)
     end
     flags[name] = nil
   end
@@ -8692,24 +8690,30 @@ ExivaMapWindow < MainWindow
     removeFlag(name)
     local m = getMinimap()
     if not m then return false end
-    local list, any = {}, false
-    for z = 0, 15 do
-      local fp = {x = p.x, y = p.y, z = z}
-      local icon, d
-      if z == p.z then
-        icon, d = ICON_REAL, desc .. " (piso real)"
-      else
-        icon, d = ICON_OTHER, desc .. " (esta en el piso z=" .. p.z .. ")"
-      end
-      local ok = pcall(function() m:addFlag(fp, icon, d) end)
-      if ok then
-        any = true
-        table.insert(list, {pos = fp, icon = icon, desc = d})
+    local myZ = p.z
+    pcall(function() myZ = player:getPosition().z end)
+    local fp = {x = p.x, y = p.y, z = myZ}
+    local d = desc
+    if myZ ~= p.z then d = desc .. " [esta en z=" .. p.z .. ", tu en z=" .. myZ .. "]" end
+    local ok = pcall(function() m:addFlag(fp, 1, d) end)
+    if ok then
+      flags[name] = {pos = fp, icon = 1, desc = d, base = desc, realPos = p}
+    end
+    return ok
+  end
+
+  -- Si cambias de piso, mover las banderas a tu piso nuevo
+  local lastZ = nil
+  macro(500, function()
+    local okp, me = pcall(function() return player:getPosition() end)
+    if not okp or not me then return end
+    if lastZ and me.z ~= lastZ then
+      for name, f in pairs(flags) do
+        pcall(function() putFlag(name, f.realPos, f.base) end)
       end
     end
-    flags[name] = list
-    return any
-  end
+    lastZ = me.z
+  end)
 
   -- ----- Geometria de exiva -----
   local DIRV = {
@@ -8808,8 +8812,9 @@ ExivaMapWindow < MainWindow
     if dz == 1 then where = where .. ", piso ABAJO" end
 
     local desc = name .. ": " .. where
-    local marked = putFlag(name, p, desc)
     lastFound = p
+    local okf, marked = pcall(putFlag, name, p, desc)
+    marked = okf and marked
     setResult(name .. "\n" .. where
       .. "\nAprox: " .. p.x .. ", " .. p.y .. ", " .. p.z
       .. "  (lecturas: " .. nUsed .. ")"
@@ -8827,7 +8832,10 @@ ExivaMapWindow < MainWindow
       setSt(lastFound and "No encuentro el minimapa" or "Aun no hay lecturas", "#ffaa44")
       return
     end
-    pcall(function() m:setCameraPosition(lastFound) end)
+    pcall(function()
+      local z = player:getPosition().z
+      m:setCameraPosition({x = lastFound.x, y = lastFound.y, z = z})
+    end)
   end
   xWin.clearBtn.onClick = function()
     for n in pairs(flags) do removeFlag(n) end
