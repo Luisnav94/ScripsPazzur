@@ -1,5 +1,5 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 24)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 24b - sin next)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
@@ -8718,7 +8718,7 @@ ExivaMapWindow < MainWindow
 
   -- Si el minimapa cambia de piso, mover las banderas a ese piso
   macro(300, function()
-    -- (sin next(): no existe en el bot)
+    -- revisa si hay banderas (la funcion next no existe en el bot)
     local hasFlags = false
     for _ in pairs(flags) do hasFlags = true; break end
     if not hasFlags then return end
