@@ -7,8 +7,10 @@
 --
 --  CAMBIOS v25
 --   - Equipo Auto: nuevo Modo PVP con SUS PROPIOS sets (boton "Sets PvP"
---     en la ventana): Ataque PvP / Defensa PvP, HP y caida propios, y
---     opcion de poner defensa PvP si hay un PK en pantalla.
+--     en la ventana): Ataque PvP / Defensa PvP. Cambia SOLO por % de vida
+--     (no reacciona a PKs).
+--   - Deteccion de PK: ya no cuenta a los de tu misma guild (emblema
+--     verde / miembro) ni a los de la lista de amigos de vBot.
 --     Modo: WAR -> CAVE -> PK -> PVP.
 --
 --  CAMBIOS v24
@@ -344,17 +346,29 @@ function Shared.supportReady()
      and now >= (Shared.supportBlock or 0)
 end
 
--- Jugadores con calavera blanca, roja o negra en pantalla (sin contar
--- los de tu party). Lo usan "Equipo Auto" (modo PK) y "Alarma PK".
+-- Jugadores con calavera blanca, roja o negra en pantalla, SIN contar:
+--  - los de tu party
+--  - los de tu misma guild (emblema verde o de miembro de tu guild)
+--  - los de la lista de amigos de vBot
+-- Lo usan "Equipo Auto" (modo PK), "Alarma PK", Auto Comida, etc.
 local PK_SKULLS = {[SkullWhite or 3] = true, [SkullRed or 4] = true, [SkullBlack or 5] = true}
+local MY_GUILD_EMBLEMS = {[EmblemGreen or 1] = true, [EmblemMember or 4] = true}
+function Shared.isFriendly(spec)
+  local okp, party = pcall(function() return spec:isPartyMember() end)
+  if okp and party then return true end
+  local oke, em = pcall(function() return spec:getEmblem() end)
+  if oke and MY_GUILD_EMBLEMS[em] then return true end
+  local okf, fr = pcall(function() return isFriend and isFriend(spec:getName()) end)
+  if okf and fr then return true end
+  return false
+end
 function Shared.pkList()
   local res = {}
   for _, spec in ipairs(getSpectators()) do
     if spec:isPlayer() and not spec:isLocalPlayer() then
       local ok, sk = pcall(function() return spec:getSkull() end)
-      if ok and PK_SKULLS[sk] then
-        local okp, party = pcall(function() return spec:isPartyMember() end)
-        if not (okp and party) then table.insert(res, spec) end
+      if ok and PK_SKULLS[sk] and not Shared.isFriendly(spec) then
+        table.insert(res, spec)
       end
     end
   end
@@ -3206,8 +3220,8 @@ end
 -- Modos: WAR, CAVE, PK y PVP.
 --   PK  = valores de WAR + defensa si hay un jugador con calavera
 --         blanca, roja o negra en pantalla.
---   PVP = usa SUS PROPIOS sets (Ataque PvP / Defensa PvP) y sus propios
---         valores de HP; opcional: defensa si hay un PK en pantalla.
+--   PVP = usa SUS PROPIOS sets (Ataque PvP / Defensa PvP) y cambia
+--         SOLO por % de vida (no reacciona a PKs en pantalla).
 --         Se configuran en el boton "Sets PvP" de la ventana.
 -- ============================================================
 do
@@ -3251,8 +3265,7 @@ do
   if ec.openBags == nil then ec.openBags = true end
   ec.manualSec = ec.manualSec or 15
   -- Modo PVP: sus propios sets y valores (empiezan como copia de los normales)
-  ec.pvp = ec.pvp or {hp = 71, drop = 15, pkDef = true}
-  if ec.pvp.pkDef == nil then ec.pvp.pkDef = true end
+  ec.pvp = ec.pvp or {hp = 71, drop = 15}
   if type(ec.pvpAttack) ~= "table" then
     ec.pvpAttack = {}
     for k, v in pairs(ec.attack) do ec.pvpAttack[k] = v end
@@ -3593,7 +3606,7 @@ EquipAutoWindow < MainWindow
 
 EquipPvpWindow < MainWindow
   !text: tr('Equipo Auto - Sets PvP')
-  size: 440 330
+  size: 440 300
   @onEscape: self:hide()
 
   VbTitle
@@ -3686,13 +3699,13 @@ EquipPvpWindow < MainWindow
     minimum: 1
     maximum: 100
 
-  CheckBox
-    id: pkDef
+  VbHint
+    id: hintPvp
     anchors.top: lPvp.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 14
-    text: Poner defensa PvP si hay un PK en pantalla
+    margin-top: 10
+    text: En modo PVP el cambio es SOLO por % de vida (no reacciona a PKs).
 
   Button
     id: copyBtn
@@ -3753,8 +3766,6 @@ EquipPvpWindow < MainWindow
   pWin.pvpDrop:setValue(ec.pvp.drop)
   pWin.pvpHp.onValueChange   = function(w, v) ec.pvp.hp = v end
   pWin.pvpDrop.onValueChange = function(w, v) ec.pvp.drop = v end
-  pWin.pkDef:setChecked(ec.pvp.pkDef)
-  pWin.pkDef.onCheckChange = function(w, c) ec.pvp.pkDef = c end
   pWin.copyBtn.onClick = function()
     for _, s in ipairs(SLOTS) do
       ec.pvpAttack[s.key]  = ec.attack[s.key] or 0
@@ -3861,7 +3872,7 @@ EquipPvpWindow < MainWindow
     end
 
     local pk = nil
-    if (ec.mode == "pk" or (isPvp and ec.pvp.pkDef)) and not Shared.inPz() then
+    if ec.mode == "pk" and not Shared.inPz() then
       pk = Shared.pkList()[1]
     end
 
