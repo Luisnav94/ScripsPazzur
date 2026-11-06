@@ -9,8 +9,9 @@
 --   - NUEVO "Exiva en minimapa" (pestana Tools): lee los mensajes de
 --     exiva y pone una bandera en la zona aproximada del jugador.
 --     Con varios exivas desde lugares distintos cruza las zonas.
---     Al cambiar de piso la bandera se mueve sola a tu piso (mismo
---     x,y) y dice en que piso esta realmente el jugador.
+--     Al cambiar de piso (caminando o con las flechas del minimapa)
+--     la bandera se mueve sola al piso que muestra el minimapa y dice
+--     en que piso esta realmente el jugador.
 --
 --  CAMBIOS v23
 --   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
@@ -8672,11 +8673,25 @@ ExivaMapWindow < MainWindow
     return mm
   end
 
-  -- Una sola bandera por jugador, como en la version que si marcaba.
-  -- Siempre se pone en el piso donde estas TU: si subes o bajas de
-  -- nivel, se mueve sola a tu piso nuevo (mismo x,y). La descripcion
-  -- dice en que piso esta realmente el jugador.
-  local flags = {}   -- [nombre] = {pos, icon, desc, base, realZ}
+  -- Una sola bandera por jugador. Se pone en el piso que este MOSTRANDO
+  -- el minimapa: si subes o bajas de nivel con las flechas del minimapa
+  -- (o caminando), la bandera se mueve sola a ese piso (mismo x,y).
+  -- La descripcion dice en que piso esta realmente el jugador.
+  local flags = {}   -- [nombre] = {pos, icon, desc, base, realPos}
+
+  local function viewZ()
+    local z
+    local m = getMinimap()
+    if m then
+      pcall(function()
+        local cp = m:getCameraPosition()
+        if cp and cp.z then z = cp.z end
+      end)
+    end
+    if not z then pcall(function() z = player:getPosition().z end) end
+    return z
+  end
+
   local function removeFlag(name)
     local f = flags[name]
     if not f then return end
@@ -8690,11 +8705,10 @@ ExivaMapWindow < MainWindow
     removeFlag(name)
     local m = getMinimap()
     if not m then return false end
-    local myZ = p.z
-    pcall(function() myZ = player:getPosition().z end)
-    local fp = {x = p.x, y = p.y, z = myZ}
+    local z = viewZ() or p.z
+    local fp = {x = p.x, y = p.y, z = z}
     local d = desc
-    if myZ ~= p.z then d = desc .. " [esta en z=" .. p.z .. ", tu en z=" .. myZ .. "]" end
+    if z ~= p.z then d = desc .. " [esta en z=" .. p.z .. ", viendo z=" .. z .. "]" end
     local ok = pcall(function() m:addFlag(fp, 1, d) end)
     if ok then
       flags[name] = {pos = fp, icon = 1, desc = d, base = desc, realPos = p}
@@ -8702,17 +8716,16 @@ ExivaMapWindow < MainWindow
     return ok
   end
 
-  -- Si cambias de piso, mover las banderas a tu piso nuevo
-  local lastZ = nil
-  macro(500, function()
-    local okp, me = pcall(function() return player:getPosition() end)
-    if not okp or not me then return end
-    if lastZ and me.z ~= lastZ then
-      for name, f in pairs(flags) do
+  -- Si el minimapa cambia de piso, mover las banderas a ese piso
+  macro(300, function()
+    if not next(flags) then return end
+    local z = viewZ()
+    if not z then return end
+    for name, f in pairs(flags) do
+      if f.pos.z ~= z then
         pcall(function() putFlag(name, f.realPos, f.base) end)
       end
     end
-    lastZ = me.z
   end)
 
   -- ----- Geometria de exiva -----
@@ -8833,7 +8846,7 @@ ExivaMapWindow < MainWindow
       return
     end
     pcall(function()
-      local z = player:getPosition().z
+      local z = viewZ() or player:getPosition().z
       m:setCameraPosition({x = lastFound.x, y = lastFound.y, z = z})
     end)
   end
@@ -8845,8 +8858,10 @@ ExivaMapWindow < MainWindow
   end
 
   -- ----- Leer mensajes de exiva -----
+  -- Lee si el script esta activo, o si acabas de usar "Exiva ahora"
+  local lastCast = -1000000
   onTextMessage(function(mode, text)
-    if not xc.enabled then return end
+    if not xc.enabled and now - lastCast > 4000 then return end
     local name, rest = tostring(text or ""):match("^(.-) is (.-)%.?$")
     if not name or name == "" or #name > 40 then return end
     rest = rest:lower()
@@ -8872,17 +8887,22 @@ ExivaMapWindow < MainWindow
   end)
 
   -- ----- Lanzar exiva -----
-  local lastCast = -1000000
   local function castExiva(manual)
-    local n = trim(xc.name)
+    -- Leer el nombre directo de la casilla (por si no se guardo)
+    local n = ""
+    pcall(function() n = trim(xWin.name:getText()) end)
+    if n == "" then n = trim(xc.name) end
     if n == "" then setSt("Escribe el nombre del jugador", "#ffaa44"); return end
-    if not Shared.supportReady() then
-      if manual then setSt("Espera el exhaust de soporte", "#aaaaaa") end
-      return
-    end
-    say('exiva "' .. n .. '"')
+    xc.name = n
+    -- El automatico respeta el exhaust de soporte; el boton lanza siempre
+    if not manual and not Shared.supportReady() then return end
+    local words = 'exiva "' .. n .. '"'
+    local ok = pcall(function() say(words) end)
+    if not ok then ok = pcall(function() g_game.talk(words) end) end
     lastCast = now
     Shared.lastSupport = now
+    setSt(ok and ("Lanzado: " .. words) or "No se pudo lanzar el exiva",
+          ok and "#88ccff" or "#ff6666")
   end
   xWin.castBtn.onClick = function() castExiva(true) end
 
