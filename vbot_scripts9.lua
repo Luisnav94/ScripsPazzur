@@ -1,9 +1,15 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 25)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 26)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v26
+--   - Dynamic Lure: ignora mascotas e invocaciones, y los nombres de
+--     "Monstruos a ignorar" sin importar el [Lvl.xx] (ej: Alebrije).
+--     Si esta atacando a uno ignorado, cancela el ataque. "Alebrije"
+--     se agrega solo a la lista. Attack Bot tampoco lo cuenta.
 --
 --  CAMBIOS v25
 --   - Equipo Auto: nuevo Modo PVP con SUS PROPIOS sets (boton "Sets PvP"
@@ -373,6 +379,38 @@ function Shared.pkList()
     end
   end
   return res
+end
+
+-- Nombre "base" de un monstruo: sin lo que vaya entre corchetes.
+-- "Alebrije [Lvl.37]" -> "alebrije"  (asi sirve para cualquier nivel)
+function Shared.baseName(n)
+  n = tostring(n or ""):lower():gsub("%s*%b[]", "")
+  return (n:match("^%s*(.-)%s*$") or "")
+end
+
+-- Es una invocacion / mascota (tuya o de otro jugador)?
+function Shared.isSummon(cr)
+  local ok, t = pcall(function() return cr:getType() end)
+  if not ok or type(t) ~= "number" then return false end
+  return t == (CreatureTypeSummonOwn or 3) or t == (CreatureTypeSummonOther or 4)
+end
+
+-- Monstruos que NUNCA se atacan ni se cuentan: invocaciones/mascotas y
+-- los nombres de "Monstruos a ignorar" del Dynamic Lure (sin importar el
+-- [Lvl.xx] que tengan en el nombre).
+local ignText, ignSet = nil, {}
+function Shared.isIgnoredMob(cr)
+  if Shared.isSummon(cr) then return true end
+  local lc = storage.dynamicLureV9
+  local txt = (type(lc) == "table" and lc.ignoreNames) or ""
+  if txt ~= ignText then
+    ignText, ignSet = txt, {}
+    for name in txt:gmatch("[^,]+") do
+      local n = Shared.baseName(name)
+      if n ~= "" then ignSet[n] = true end
+    end
+  end
+  return ignSet[Shared.baseName(cr:getName())] == true
 end
 
 -- Estoy en zona protegida (PZ)?
@@ -4340,6 +4378,14 @@ do
   for k, v in pairs(LURE_DEFAULTS) do
     if lc[k] == nil then lc[k] = v end
   end
+  -- Mascota de la guild: se agrega una sola vez a la lista de ignorados
+  if not lc.petAdded then
+    lc.petAdded = true
+    local cur = lc.ignoreNames or ""
+    if not cur:lower():find("alebrije", 1, true) then
+      lc.ignoreNames = (cur:match("^%s*$") and "" or (cur .. ", ")) .. "Alebrije"
+    end
+  end
 
   g_ui.loadUIFromString([[
 DynamicLureWindow < MainWindow
@@ -4576,7 +4622,7 @@ DynamicLureWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
-    text: Nombres separados por coma. Estos no se cuentan ni se atacan.
+    text: Nombres separados por coma. No se cuentan ni se atacan. Lo que va entre [ ] se ignora (Alebrije [Lvl.xx] = Alebrije). Mascotas e invocaciones se ignoran solas.
 
   HorizontalSeparator
     id: sepBottom
@@ -4753,6 +4799,11 @@ DynamicLureWindow < MainWindow
       setLStatus("Pausa: atacando a un jugador", "#ffcc66")
       return
     end
+    -- Nunca atacar a la mascota / invocaciones / ignorados
+    if current and current:isMonster() and Shared.isIgnoredMob(current) then
+      g_game.cancelAttack()
+      current = nil
+    end
 
     if now - lastCacheClean > 5000 then
       lastCacheClean = now
@@ -4764,11 +4815,10 @@ DynamicLureWindow < MainWindow
     local range    = lc.detectRange or 10
     local stopAt   = math.max(1, lc.stopAt or 6)
     local resumeAt = math.min(lc.resumeAt or 1, stopAt - 1)
-    local ignore   = ignoreSet()
 
     local mobs = {}
     for _, cr in ipairs(getSpectators()) do
-      if cr:isMonster() and not ignore[(cr:getName() or ""):lower()] then
+      if cr:isMonster() and not Shared.isIgnoredMob(cr) then
         local cp = cr:getPosition()
         local hp = cr:getHealthPercent()
         if cp and hp > 0 then
@@ -6408,7 +6458,9 @@ macro(100, function()
     local sp = spec:getPosition()
     if sp and sp.z == me.z then
       if spec:isMonster() then
-        if (spec:getHealthPercent() or 0) > 0 then table.insert(mobs, sp) end
+        if (spec:getHealthPercent() or 0) > 0 and not Shared.isIgnoredMob(spec) then
+          table.insert(mobs, sp)
+        end
       elseif spec:isPlayer() and not spec:isLocalPlayer() and not isPartyMember(spec) then
         otherPlayers = true
       end
