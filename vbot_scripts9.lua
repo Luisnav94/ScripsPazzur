@@ -1,9 +1,13 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 26)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 27)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v27
+--   - Alarma PK: aviso (sonido + Telegram) cuando se CONECTA alguno de
+--     los nombres VIP que escribas. Funciona con la ventana VIP cerrada.
 --
 --  CAMBIOS v26
 --   - Dynamic Lure: ignora mascotas e invocaciones, y los nombres de
@@ -8072,6 +8076,10 @@ end
 --  - No avisa si TU tienes skull.
 --  - Boton "Probar" para comprobar sonido y Telegram.
 --  - Los de tu party no cuentan.
+--  - VIP: avisa (sonido + Telegram) cuando se CONECTA alguno de los
+--    nombres que escribas. Tienen que estar en tu lista VIP. Funciona con
+--    la ventana VIP cerrada. Al entrar al juego no avisa de los que ya
+--    estaban conectados.
 -- ============================================================
 do
   local AL = "pkAlarmV1"
@@ -8088,6 +8096,8 @@ do
     UI.TextEdit(al.tgToken or "", function(w, t) al.tgToken = trim(t) end)
     UI.Label("Telegram chat id:")
     UI.TextEdit(al.tgChat or "", function(w, t) al.tgChat = trim(t) end)
+    UI.Label("Avisar si se conectan (VIP, separados por coma):")
+    UI.TextEdit(al.vipNames or "", function(w, t) al.vipNames = t end)
   end)
 
   local lastSt = ""
@@ -8125,6 +8135,88 @@ do
     setSt(sent and "Prueba enviada" or "Prueba: falta token / chat id", sent and "#88ccff" or "#ffaa44")
   end
 
+  -- ----- VIP: aviso cuando se conecta un nombre de la lista -----
+  local vipText, vipWatch = nil, {}
+  local function getWatch()
+    local t = al.vipNames or ""
+    if t ~= vipText then
+      vipText, vipWatch = t, {}
+      for n in t:gmatch("[^,]+") do
+        n = trim(n):lower()
+        if n ~= "" then vipWatch[n] = true end
+      end
+    end
+    return vipWatch
+  end
+
+  -- Lee quien de la lista VIP esta conectado: {nombre_minusculas = true/false}.
+  -- 1) datos del juego (no depende de la ventana VIP)
+  -- 2) respaldo: la lista del modulo VIP (existe aunque este cerrada)
+  local function readVips()
+    local res, got = {}, false
+    pcall(function()
+      local vips = g_game.getVips()
+      if type(vips) ~= "table" then return end
+      for _, v in pairs(vips) do
+        if type(v) == "table" then
+          local name = v[1] or v.name
+          local st = v[2] or v.status or v.state
+          if type(name) == "string" then
+            res[name:lower()] = (st == 1)
+            got = true
+          end
+        end
+      end
+    end)
+    if got then return res end
+    pcall(function()
+      local vl = modules.game_viplist
+      local win = vl and (vl.vipWindow or (vl.getVipWindow and vl.getVipWindow()))
+      if not win then return end
+      local panel = win:recursiveGetChildById('contentsPanel') or win
+      for _, ch in ipairs(panel:getChildren()) do
+        local okn, name = pcall(function() return ch:getText() end)
+        if okn and type(name) == "string" and name ~= "" and ch.vipState ~= nil then
+          res[name:lower()] = (ch.vipState == 1)
+          got = true
+        end
+      end
+    end)
+    return got and res or nil
+  end
+
+  local vipPrev, vipLastAlert = nil, {}
+  local vipMsg, vipMsgUntil = "", 0
+  local VIP_REPEAT_MS = 2 * 60 * 1000
+  macro(3000, function()
+    if not g_game.isOnline() then vipPrev = nil; return end
+    if not al.enabled then return end
+    local watch = getWatch()
+    local any = false
+    for _ in pairs(watch) do any = true; break end
+    if not any then return end
+    local cur = readVips()
+    if not cur then return end
+    -- Primera lectura (al entrar): solo guarda, no avisa
+    if not vipPrev then vipPrev = cur; return end
+    local fresh = {}
+    for n in pairs(watch) do
+      if cur[n] and not vipPrev[n] and now - (vipLastAlert[n] or -100000000) >= VIP_REPEAT_MS then
+        vipLastAlert[n] = now
+        table.insert(fresh, n)
+      end
+    end
+    vipPrev = cur
+    if #fresh > 0 then
+      lastSound = -1000000
+      sound()
+      telegram("VIP conectado (" .. (player and player:getName() or "?") .. "): "
+        .. table.concat(fresh, ", "))
+      vipMsg, vipMsgUntil = "VIP conectado: " .. table.concat(fresh, ", "), now + 15000
+      setSt(vipMsg, "#ffcc00")
+    end
+  end)
+
   UIx.bindSwitch(al, aUI.switch, nil, function(v)
     setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
   end)
@@ -8133,7 +8225,11 @@ do
   macro(500, function()
     if not al.enabled or not g_game.isOnline() then return end
     local list = Shared.pkList()
-    if #list == 0 then setSt("Activo - sin PK", "#66ff66"); return end
+    if #list == 0 then
+      if now < vipMsgUntil then setSt(vipMsg, "#ffcc00")
+      else setSt("Activo - sin PK", "#66ff66") end
+      return
+    end
 
     if Shared.iAmPk() then
       setSt("Tienes skull: alarma en pausa", "#aaaaaa")
