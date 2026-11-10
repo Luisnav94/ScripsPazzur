@@ -8,6 +8,8 @@
 --  CAMBIOS v27
 --   - Alarma PK: aviso (sonido + Telegram) cuando se CONECTA alguno de
 --     los nombres VIP que escribas. Funciona con la ventana VIP cerrada.
+--   - Alarma PK: la configuracion (token, chat id, VIP, sonido, Probar)
+--     ahora esta en una ventana con el boton "Config".
 --
 --  CAMBIOS v26
 --   - Dynamic Lure: ignora mascotas e invocaciones, y los nombres de
@@ -8074,7 +8076,7 @@ end
 --  - Aviso a Telegram (en el celular vibra y enciende la pantalla).
 --  - Un solo mensaje por PK: no se repite mientras siga en pantalla.
 --  - No avisa si TU tienes skull.
---  - Boton "Probar" para comprobar sonido y Telegram.
+--  - Boton "Config": token, chat id, nombres VIP, sonido y "Probar".
 --  - Los de tu party no cuentan.
 --  - VIP: avisa (sonido + Telegram) cuando se CONECTA alguno de los
 --    nombres que escribas. Tienen que estar en tu lista VIP. Funciona con
@@ -8088,23 +8090,127 @@ do
   end
   local al = storage[AL]
 
+  g_ui.loadUIFromString([[
+PkAlarmWindow < MainWindow
+  !text: tr('Alarma PK')
+  size: 320 340
+  @onEscape: self:hide()
+
+  Label
+    id: lToken
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Telegram token del bot:
+
+  TextEdit
+    id: tgToken
+    anchors.top: lToken.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  Label
+    id: lChat
+    anchors.top: tgToken.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    text: Telegram chat id:
+
+  TextEdit
+    id: tgChat
+    anchors.top: lChat.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  Label
+    id: lVip
+    anchors.top: tgChat.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Avisar si se conectan (VIP, separados por coma):
+
+  TextEdit
+    id: vipNames
+    anchors.top: lVip.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  CheckBox
+    id: sound
+    anchors.top: vipNames.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    text: Sonido de alarma
+
+  VbHint
+    id: hint
+    anchors.top: sound.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Los VIP tienen que estar en tu lista VIP. No hace falta tener abierta la ventana VIP.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: testBtn
+    anchors.bottom: parent.bottom
+    anchors.left: enableBtn.right
+    margin-left: 6
+    width: 70
+    text: Probar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
   UIx.header("ALARMA PK")
   local aUI = UIx.scriptPanel("Alarma PK")
-  aUI.setupBtn:setText("Probar")
-  pcall(function()
-    UI.Label("Telegram token del bot:")
-    UI.TextEdit(al.tgToken or "", function(w, t) al.tgToken = trim(t) end)
-    UI.Label("Telegram chat id:")
-    UI.TextEdit(al.tgChat or "", function(w, t) al.tgChat = trim(t) end)
-    UI.Label("Avisar si se conectan (VIP, separados por coma):")
-    UI.TextEdit(al.vipNames or "", function(w, t) al.vipNames = t end)
-  end)
+  local aWin = UI.createWindow('PkAlarmWindow', rootWidget)
+  aWin:hide()
+  if al.sound == nil then al.sound = true end
+
+  aWin.tgToken:setText(al.tgToken or "")
+  aWin.tgToken.onTextChange = function(w, t) al.tgToken = trim(t) end
+  aWin.tgChat:setText(al.tgChat or "")
+  aWin.tgChat.onTextChange = function(w, t) al.tgChat = trim(t) end
+  aWin.vipNames:setText(al.vipNames or "")
+  aWin.vipNames.onTextChange = function(w, t) al.vipNames = t end
+  aWin.sound:setChecked(al.sound)
+  aWin.sound.onCheckChange = function(w, c) al.sound = c end
+  aWin.closeBtn.onClick = function() aWin:hide() end
+  aUI.setupBtn.onClick = function() UIx.toggleWindow(aWin) end
 
   local lastSt = ""
   local function setSt(t, c)
     if t == lastSt then return end
     lastSt = t
     UIx.setLabel(aUI.status, t, c)
+    UIx.setLabel(aWin.status, t, c)
   end
 
   local function urlEnc(s)
@@ -8128,7 +8234,7 @@ do
     end
   end
 
-  aUI.setupBtn.onClick = function()
+  aWin.testBtn.onClick = function()
     lastSound = -1000000
     sound()
     local sent = telegram("[Prueba] Alarma PK de " .. (player and player:getName() or "?"))
@@ -8217,7 +8323,7 @@ do
     end
   end)
 
-  UIx.bindSwitch(al, aUI.switch, nil, function(v)
+  UIx.bindSwitch(al, aUI.switch, aWin.enableBtn, function(v)
     setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
   end)
 
