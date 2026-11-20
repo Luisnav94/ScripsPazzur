@@ -8,7 +8,8 @@
 --  CAMBIOS v28
 --   - NUEVO "Exani Hur" (pestana Tools): boton "Levitar" que elige solo
 --     arriba o abajo segun el sqm de enfrente, botones ARRIBA/ABAJO en
---     Config, y modo automatico al chocar 2 veces contra una pared.
+--     Config, y modo automatico al chocar UNA vez contra una pared
+--     (funciona con el keypad del celular).
 --
 --  CAMBIOS v27
 --   - Alarma PK: aviso (sonido + Telegram) cuando se CONECTA alguno de
@@ -9482,10 +9483,13 @@ endSection(__sec)
 -- 14. TOOLS - EXANI HUR (levitar arriba / abajo)
 --  - Boton "Levitar" en la pestana: mira el sqm de enfrente y elige
 --    solo si es "exani hur up" o "exani hur down".
---  - Modo automatico (interruptor): al chocar 2 veces seguidas contra
---    una pared en la misma direccion, levita solo.
---  - Si no puede saber si es arriba o abajo (el cliente no ve ese
---    piso), prueba primero arriba y, si falla, la siguiente vez abajo.
+--  - Modo automatico (interruptor): al chocar UNA vez contra una pared
+--    (teclado o keypad del celular), levita solo. Solo lo lanza si el
+--    sqm de enfrente permite levitar (arriba o abajo); si no, no gasta
+--    mana. El cliente no avisa del choque al servidor, por eso se revisa
+--    el paso antes de que el cliente lo cancele.
+--  - Boton manual: si no puede saber si es arriba o abajo, prueba
+--    primero arriba y la siguiente vez abajo.
 --  - Respeta el exhaust de soporte (Auto Haste, Buff de ataque, Exiva).
 --  - Solo funciona mirando al norte, sur, este u oeste (no diagonal).
 -- =====================================================================
@@ -9552,7 +9556,7 @@ ExaniHurWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
-    text: Activar = modo automatico: si chocas 2 veces seguidas contra una pared, levita solo. Mira al norte, sur, este u oeste.
+    text: Activar = modo automatico: al chocar una vez contra una pared donde se puede levitar, levita solo. Solo norte, sur, este u oeste.
 
   VbStatus
     id: status
@@ -9626,9 +9630,9 @@ ExaniHurQuick < Panel
   end
 
   -- "up", "down" o nil (no se puede saber)
-  local function decide()
-    local d = facing()
-    if not d then return nil, nil end
+  local function decide(dirOverride)
+    local d = dirOverride or facing()
+    if not d or not DV[d] then return nil, nil end
     local me = pos()
     local v = DV[d]
     local fx, fy = me.x + v[1], me.y + v[2]
@@ -9665,10 +9669,14 @@ ExaniHurQuick < Panel
   end
 
   -- Elige solo. Si no sabe, alterna: primero arriba, luego abajo.
-  local function levitate(manual)
-    local which, d = decide()
+  local function levitate(manual, dir)
+    local which, d = decide(dir)
     if not d then
       setSt("Mira al norte, sur, este u oeste", "#ffaa44")
+      return
+    end
+    if not which and not manual then
+      setSt("Aqui no se puede levitar", "#aaaaaa")
       return
     end
     if not which then
@@ -9686,38 +9694,58 @@ ExaniHurQuick < Panel
   hWin.downBtn.onClick = function() cast("down", true) end
 
   UIx.bindSwitch(lc, hUI.switch, hWin.enableBtn, function(v)
-    setSt(v and "Activo - choca 2 veces" or "Inactivo", v and "#66ff66" or "#888888")
+    setSt(v and "Activo - choca contra la pared" or "Inactivo", v and "#66ff66" or "#888888")
   end)
 
-  -- ----- Modo automatico: 2 choques seguidos contra la pared -----
-  local bumpAt, bumpDir, bumpPos, bumps = 0, nil, nil, 0
-  onTextMessage(function(mode, text)
-    local t = (text or ""):lower()
-    if not t:find("sorry, not possible", 1, true) then return end
-    -- un "not possible" justo despues de lanzar = fallo del hechizo
-    if now - castAt < 900 then return end
-    if not lc.enabled then return end
-    local d = facing()
-    if not d then return end
+  -- ----- Modo automatico: 1 choque contra la pared -----
+  -- El cliente NO manda nada al servidor cuando chocas contra una pared
+  -- (solo gira el personaje), asi que no hay mensaje que leer. Por eso se
+  -- "envuelve" la funcion de caminar del cliente (la usan el teclado y el
+  -- keypad del celular) y se revisa el sqm antes de cada paso.
+  local function isWallAhead(dir)
+    if not DV[dir] then return false end
     local me = pos()
-    -- el sqm de enfrente tiene que estar bloqueado (pared)
-    local v = DV[d]
-    local kF, gF, wF = tileInfo({x = me.x + v[1], y = me.y + v[2], z = me.z})
-    if kF and wF then return end
-
-    local samePlace = bumpPos and bumpPos.x == me.x and bumpPos.y == me.y and bumpPos.z == me.z
-    if now - bumpAt < 1500 and bumpDir == d and samePlace then
-      bumps = bumps + 1
-    else
-      bumps = 1
+    local v = DV[dir]
+    local tp = {x = me.x + v[1], y = me.y + v[2], z = me.z}
+    local tile
+    pcall(function() tile = g_map.getTile(tp) end)
+    if not tile then return false end            -- desconocido: no tocar
+    local okw, walk = pcall(function() return tile:isWalkable() end)
+    if okw and walk then return false end        -- se puede caminar
+    -- una criatura bloqueando no es pared
+    local okc, crs = pcall(function() return tile:getCreatures() end)
+    if okc and crs and #crs > 0 then return false end
+    -- escaleras / rampas / sqm vacio: lo maneja el cliente
+    local oke, empty = pcall(function() return tile:isEmpty() end)
+    local okb, blocking = pcall(function() return tile:isBlocking() end)
+    if oke and empty and okb and not blocking then return false end
+    local okp, ptile = pcall(function() return player:getTile() end)
+    if okp and ptile then
+      local okh, elev = pcall(function() return ptile:hasElevation(3) end)
+      if okh and elev then return false end
     end
-    bumpAt, bumpDir, bumpPos = now, d, {x = me.x, y = me.y, z = me.z}
+    return true
+  end
 
-    if bumps >= 2 then
-      bumps = 0
-      if now - lastCast >= 1000 then levitate(false) end
-    else
-      setSt("Choque al " .. DNAME[d] .. " (1 de 2)", "#aaaaaa")
+  local lastBumpTry = -1000000
+  local function onWalkAttempt(dir)
+    if not lc.enabled or not g_game.isOnline() then return end
+    if type(dir) ~= "number" or dir > 3 then return end
+    if now - lastBumpTry < 1000 then return end     -- no repetir al mantener
+    if not isWallAhead(dir) then return end
+    lastBumpTry = now
+    levitate(false, dir)
+  end
+
+  pcall(function()
+    local gw = modules.game_walking
+    if not gw or type(gw.walk) ~= "function" then return end
+    -- guardar la original UNA sola vez (al recargar el bot no se encadena)
+    if not gw.__vbOrigWalk then gw.__vbOrigWalk = gw.walk end
+    local orig = gw.__vbOrigWalk
+    gw.walk = function(dir, ...)
+      pcall(onWalkAttempt, dir)
+      return orig(dir, ...)
     end
   end)
 end
