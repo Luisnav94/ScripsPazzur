@@ -7,9 +7,10 @@
 --
 --  CAMBIOS v29
 --   - Party Support: ayuda tambien a los de tu GUILD (por el emblema).
---     Nueva ventana "Guild: vida y boost": pocion de VIDA para amigos y
---     BOOST por turnos (ej: exura boost "{name}") a cada compañero de la
---     guild/party en pantalla, recordando a quien ya se lo dio.
+--     Ventanas mas chicas (caben sin achicar la pantalla): la principal
+--     (a quien, vida, mana, seguridad) y "Hechizos y boost" (exura sio y
+--     BOOST por turnos, ej: exura boost "{name}", recordando a quien ya
+--     se lo dio).
 --   - Exani Hur: ya no sale "exhausted" con utani tempo hur / utito
 --     tempo: queda en cola, aparta el turno y se lanza apenas se pueda.
 --
@@ -4980,9 +4981,10 @@ endSection(__sec)
 --  - Runa de curacion (UH), pocion de mana y hechizo de curar amigo
 --    (ej: exura sio "{name}" para Druid).
 --  - Ayuda a party, a los de tu GUILD (por el emblema) y a la lista.
---  - Boton "Guild: vida y boost": pocion de VIDA para amigos y BOOST a
---    la guild por turnos (ej: exura boost "{name}"): se lo lanza a cada
+--  - Boton "Hechizos y boost": hechizo de curar amigo y BOOST a la
+--    guild por turnos (ej: exura boost "{name}"): se lo lanza a cada
 --    compañero en rotacion y recuerda a quien ya se lo dio.
+--  - En la casilla de "Vida del amigo" puedes poner runa UH o pocion.
 -- #####################################################################
 __sec = startSection("HP")
 do
@@ -5013,8 +5015,6 @@ ec.sioWords = ec.sioWords or 'exura sio "{name}"'
 ec.sioHp    = ec.sioHp or 70
 ec.sioMana  = ec.sioMana or 140
 if ec.helpGuild == nil then ec.helpGuild = true end
-ec.hpPotId   = ec.hpPotId or 0
-ec.hpPotHp   = ec.hpPotHp or 50
 if ec.boostEnabled == nil then ec.boostEnabled = false end
 ec.boostWords = ec.boostWords or 'exura boost "{name}"'
 ec.boostEvery = ec.boostEvery or 60
@@ -5023,8 +5023,8 @@ ec.boostMana  = ec.boostMana or 100
 
 g_ui.loadUIFromString([[
 EKSupportWindow < MainWindow
-  !text: tr('Party Support - Amigos y Party')
-  size: 340 744
+  !text: tr('Party Support')
+  size: 340 430
   @onEscape: self:hide()
 
   VbTitle
@@ -5037,25 +5037,25 @@ EKSupportWindow < MainWindow
     id: helpParty
     anchors.top: tWho.bottom
     anchors.left: parent.left
-    anchors.right: parent.right
     margin-top: 4
-    text: Ayudar a los miembros de mi party
+    width: 150
+    text: Mi party
 
   CheckBox
     id: helpGuild
-    anchors.top: helpParty.bottom
-    anchors.left: parent.left
+    anchors.top: tWho.bottom
+    anchors.left: helpParty.right
     anchors.right: parent.right
     margin-top: 4
-    text: Ayudar a los de mi guild (por el emblema)
+    text: Mi guild (emblema)
 
   Label
     id: lblNames
-    anchors.top: helpGuild.bottom
+    anchors.top: helpParty.bottom
     anchors.left: parent.left
-    margin-top: 8
+    margin-top: 6
     text-auto-resize: true
-    text: Amigos por nombre (separados por coma):
+    text: Amigos por nombre (coma), van primero:
 
   TextEdit
     id: customNames
@@ -5066,17 +5066,9 @@ EKSupportWindow < MainWindow
     height: 22
     !tooltip: tr('Ej: Amigo Uno, Amigo Dos')
 
-  VbHint
-    id: hNames
-    anchors.top: customNames.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    text: Los nombres de la lista se ayudan siempre (esten o no en tu party) y van primero. Escribelos completos.
-
   HorizontalSeparator
     id: sep1
-    anchors.top: hNames.bottom
+    anchors.top: customNames.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
@@ -5086,7 +5078,7 @@ EKSupportWindow < MainWindow
     anchors.top: sep1.bottom
     anchors.left: parent.left
     margin-top: 6
-    text: Runa de curacion (UH)
+    text: Vida del amigo (runa o pocion)
 
   BotItem
     id: uhItem
@@ -5110,19 +5102,12 @@ EKSupportWindow < MainWindow
     minimum: 0
     maximum: 100
 
-  HorizontalSeparator
-    id: sep2
-    anchors.top: uhItem.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-
   VbTitle
     id: tMp
-    anchors.top: sep2.bottom
+    anchors.top: uhItem.bottom
     anchors.left: parent.left
-    margin-top: 6
-    text: Pocion de mana para el amigo
+    margin-top: 8
+    text: Mana del amigo (pocion)
 
   BotItem
     id: manaItem
@@ -5146,109 +5131,16 @@ EKSupportWindow < MainWindow
     minimum: 0
     maximum: 100
 
-  VbHint
-    id: hMana
+  HorizontalSeparator
+    id: sep3
     anchors.top: manaItem.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 4
-    text: Solo funciona si el servidor envia la mana de otros jugadores. Si no la envia, el estado lo indica.
-
-  HorizontalSeparator
-    id: sepSio
-    anchors.top: hMana.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
     margin-top: 8
-
-  VbTitle
-    id: tSio
-    anchors.top: sepSio.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Hechizo para curar amigo
-
-  CheckBox
-    id: sioEnabled
-    anchors.top: tSio.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    text: Curar con hechizo (Druid: exura sio)
-
-  Label
-    id: lSioWords
-    anchors.top: sioEnabled.bottom
-    anchors.left: parent.left
-    margin-top: 10
-    width: 70
-    text: Hechizo:
-
-  TextEdit
-    id: sioWords
-    anchors.verticalCenter: lSioWords.verticalCenter
-    anchors.left: lSioWords.right
-    anchors.right: parent.right
-    height: 20
-
-  Label
-    id: lSioHp
-    anchors.top: lSioWords.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 210
-    text: Usar si su HP % <=
-
-  SpinBox
-    id: sioHp
-    anchors.verticalCenter: lSioHp.verticalCenter
-    anchors.left: lSioHp.right
-    width: 45
-    minimum: 0
-    maximum: 100
-
-  Label
-    id: lSioMana
-    anchors.top: lSioHp.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 210
-    text: Mana minima
-
-  SpinBox
-    id: sioMana
-    anchors.verticalCenter: lSioMana.verticalCenter
-    anchors.left: lSioMana.right
-    width: 70
-    minimum: 0
-    maximum: 50000
-    step: 10
-
-  VbHint
-    id: hSio
-    anchors.top: lSioMana.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-    text: {name} se cambia por el nombre del amigo. Si tu propio HP esta mas bajo que el del amigo, el War Healer te cura a ti primero.
-
-  HorizontalSeparator
-    id: sep3
-    anchors.top: hSio.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-
-  VbTitle
-    id: tSafe
-    anchors.top: sep3.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Seguridad
 
   Label
     id: lblSafe
-    anchors.top: tSafe.bottom
+    anchors.top: sep3.bottom
     anchors.left: parent.left
     margin-top: 10
     width: 210
@@ -5267,7 +5159,7 @@ EKSupportWindow < MainWindow
     id: lblDist
     anchors.top: lblSafe.bottom
     anchors.left: parent.left
-    margin-top: 14
+    margin-top: 12
     width: 210
     text: Distancia maxima (sqm)
 
@@ -5278,13 +5170,6 @@ EKSupportWindow < MainWindow
     width: 45
     minimum: 1
     maximum: 7
-
-  HorizontalSeparator
-    id: sepBottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: status.top
-    margin-bottom: 4
 
   VbStatus
     id: status
@@ -5307,7 +5192,7 @@ EKSupportWindow < MainWindow
     anchors.left: enableBtn.right
     margin-left: 6
     width: 130
-    text: Guild: vida y boost
+    text: Hechizos y boost
 
   Button
     id: closeBtn
@@ -5317,67 +5202,79 @@ EKSupportWindow < MainWindow
     text: Cerrar
 
 EKMoreWindow < MainWindow
-  !text: tr('Party Support - Guild: vida y boost')
-  size: 340 470
+  !text: tr('Party Support - Hechizos y boost')
+  size: 340 430
   @onEscape: self:hide()
 
-  VbTitle
-    id: tHp
+  CheckBox
+    id: sioEnabled
     anchors.top: parent.top
     anchors.left: parent.left
-    text: Pocion de VIDA para el amigo
-
-  BotItem
-    id: hpPotItem
-    anchors.top: tHp.bottom
-    anchors.left: parent.left
-    margin-top: 4
+    anchors.right: parent.right
+    text: Curar amigo con hechizo (ej: exura sio)
 
   Label
-    id: lHpPot
-    anchors.verticalCenter: hpPotItem.verticalCenter
-    anchors.left: hpPotItem.right
-    margin-left: 8
-    width: 150
+    id: lSioWords
+    anchors.top: sioEnabled.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    width: 70
+    text: Hechizo:
+
+  TextEdit
+    id: sioWords
+    anchors.verticalCenter: lSioWords.verticalCenter
+    anchors.left: lSioWords.right
+    anchors.right: parent.right
+    height: 20
+
+  Label
+    id: lSioHp
+    anchors.top: lSioWords.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 210
     text: Usar si su HP % <=
 
   SpinBox
-    id: hpPotHp
-    anchors.verticalCenter: hpPotItem.verticalCenter
-    anchors.left: lHpPot.right
+    id: sioHp
+    anchors.verticalCenter: lSioHp.verticalCenter
+    anchors.left: lSioHp.right
     width: 45
     minimum: 0
     maximum: 100
 
-  VbHint
-    id: hHp
-    anchors.top: hpPotItem.bottom
+  Label
+    id: lSioMana
+    anchors.top: lSioHp.bottom
     anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    text: Va despues de la UH y del hechizo de curar. Usa la distancia maxima de la otra ventana.
+    margin-top: 12
+    width: 210
+    text: Mana minima
+
+  SpinBox
+    id: sioMana
+    anchors.verticalCenter: lSioMana.verticalCenter
+    anchors.left: lSioMana.right
+    width: 70
+    minimum: 0
+    maximum: 50000
+    step: 10
 
   HorizontalSeparator
     id: sep1
-    anchors.top: hHp.bottom
+    anchors.top: lSioMana.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 8
-
-  VbTitle
-    id: tBoost
-    anchors.top: sep1.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Boost a la guild (por turnos)
+    margin-top: 10
 
   CheckBox
     id: boostEnabled
-    anchors.top: tBoost.bottom
+    anchors.top: sep1.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 4
-    text: Lanzar el boost a cada compañero, uno por uno
+    margin-top: 8
+    text: Boost a la guild por turnos (uno por uno)
 
   Label
     id: lBoostWords
@@ -5398,7 +5295,7 @@ EKMoreWindow < MainWindow
     id: lEvery
     anchors.top: lBoostWords.bottom
     anchors.left: parent.left
-    margin-top: 14
+    margin-top: 12
     width: 210
     text: Repetir a cada uno cada (seg)
 
@@ -5415,7 +5312,7 @@ EKMoreWindow < MainWindow
     id: lGap
     anchors.top: lEvery.bottom
     anchors.left: parent.left
-    margin-top: 14
+    margin-top: 12
     width: 210
     text: Pausa entre lanzamientos (seg)
 
@@ -5432,7 +5329,7 @@ EKMoreWindow < MainWindow
     id: lBMana
     anchors.top: lGap.bottom
     anchors.left: parent.left
-    margin-top: 14
+    margin-top: 12
     width: 210
     text: Mana minima
 
@@ -5445,25 +5342,25 @@ EKMoreWindow < MainWindow
     maximum: 50000
     step: 10
 
-  VbHint
-    id: hBoost
+  Label
+    id: boostInfo
     anchors.top: lBMana.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 8
-    text: {name} = nombre del compañero. Solo se lanza si nadie necesita curacion, con tu HP >= 80% y sin exhaust de curas ni de soporte. Si falla (exhausted), ese compañero se reintenta.
-
-  Label
-    id: boostInfo
-    anchors.top: hBoost.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-    height: 34
+    margin-top: 10
+    height: 30
     text-wrap: true
     text-auto-resize: false
     color: #88ccff
     text: Turno: -
+
+  VbHint
+    id: hint
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: closeBtn.top
+    margin-bottom: 6
+    text: {name} = nombre del amigo. El boost solo sale si nadie necesita cura.
 
   Button
     id: closeBtn
@@ -5492,10 +5389,6 @@ ekWin.helpGuild.onCheckChange = function(w, c) ec.helpGuild = c end
 
 local mWin = UI.createWindow('EKMoreWindow', rootWidget)
 mWin:hide()
-mWin.hpPotItem:setItemId(ec.hpPotId or 0)
-mWin.hpPotItem.onItemChange = function(w) ec.hpPotId = w:getItemId() end
-mWin.hpPotHp:setValue(ec.hpPotHp or 0)
-mWin.hpPotHp.onValueChange = function(w, v) ec.hpPotHp = v end
 mWin.boostEnabled:setChecked(ec.boostEnabled)
 mWin.boostEnabled.onCheckChange = function(w, c) ec.boostEnabled = c end
 mWin.boostWords:setText(ec.boostWords)
@@ -5528,14 +5421,14 @@ ekWin.mySafeHp:setValue(ec.mySafeHp or 0)
 ekWin.mySafeHp.onValueChange = function(w, v) ec.mySafeHp = v end
 ekWin.maxDist:setValue(ec.maxDist or 5)
 ekWin.maxDist.onValueChange = function(w, v) ec.maxDist = v end
-ekWin.sioEnabled:setChecked(ec.sioEnabled)
-ekWin.sioEnabled.onCheckChange = function(w, c) ec.sioEnabled = c end
-ekWin.sioWords:setText(ec.sioWords)
-ekWin.sioWords.onTextChange = function(w, t) ec.sioWords = t end
-ekWin.sioHp:setValue(ec.sioHp)
-ekWin.sioHp.onValueChange = function(w, v) ec.sioHp = v end
-ekWin.sioMana:setValue(ec.sioMana)
-ekWin.sioMana.onValueChange = function(w, v) ec.sioMana = v end
+mWin.sioEnabled:setChecked(ec.sioEnabled)
+mWin.sioEnabled.onCheckChange = function(w, c) ec.sioEnabled = c end
+mWin.sioWords:setText(ec.sioWords)
+mWin.sioWords.onTextChange = function(w, t) ec.sioWords = t end
+mWin.sioHp:setValue(ec.sioHp)
+mWin.sioHp.onValueChange = function(w, v) ec.sioHp = v end
+mWin.sioMana:setValue(ec.sioMana)
+mWin.sioMana.onValueChange = function(w, v) ec.sioMana = v end
 ekWin.closeBtn.onClick = function() ekWin:hide() end
 ekUI.setupBtn.onClick = function() UIx.toggleWindow(ekWin) end
 
@@ -5547,7 +5440,7 @@ end)
 Prof.register(function(v)
   local on = (v == "druid")
   ec.sioEnabled = on
-  ekWin.sioEnabled:setChecked(on)
+  mWin.sioEnabled:setChecked(on)
   return "Party: hechizo para amigos " .. (on and "SI" or "NO")
 end)
 
@@ -5780,29 +5673,6 @@ macro(200, function()
           end
         end
         break
-      end
-    end
-  end
-
-  -- 1c) Pocion de VIDA al amigo
-  local hpPotId = ec.hpPotId or 0
-  if hpPotId > 0 and now - lastPot >= POT_CD
-     and now - Shared.lastSelfPotion >= SELF_POT_GAP
-     and not EquipCore.holdPotion(100) then
-    for _, t in ipairs(candidates) do
-      if t.hp <= (ec.hpPotHp or 0) then
-        local pot = findItem(hpPotId)
-        if pot then
-          useWith(pot, t.creature)
-        else
-          pcall(function() g_game.useInventoryItemWith(hpPotId, t.creature, 0) end)
-        end
-        lastPot = now
-        Shared.lastSelfPotion = now
-        Shared.lastUseId, Shared.lastUseAt = hpPotId, now
-        setEkStatus("Vida a " .. t.name .. " (" .. t.hp .. "%)" ..
-          (pot and "" or " por hotkey"), "#88ff88")
-        return
       end
     end
   end
