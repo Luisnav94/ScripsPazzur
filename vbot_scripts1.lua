@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 29)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 30)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v30
+--   - Exani Hur: el modo automatico volvio a funcionar. Ya no depende de
+--     interceptar la funcion de caminar; detecta el choque cuando estas
+--     quieto mirando una pared donde se puede levitar.
 --
 --  CAMBIOS v29
 --   - Party Support: ayuda tambien a los de tu GUILD (por el emblema).
@@ -9917,56 +9922,44 @@ ExaniHurQuick < Panel
     setSt(v and "Activo - choca contra la pared" or "Inactivo", v and "#66ff66" or "#888888")
   end)
 
-  -- ----- Modo automatico: 1 choque contra la pared -----
-  -- El cliente NO manda nada al servidor cuando chocas contra una pared
-  -- (solo gira el personaje), asi que no hay mensaje que leer. Por eso se
-  -- "envuelve" la funcion de caminar del cliente (la usan el teclado y el
-  -- keypad del celular) y se revisa el sqm antes de cada paso.
-  local function isWallAhead(dir)
+  -- ----- Modo automatico: detectar choque contra la pared -----
+  -- No se intercepta la funcion de caminar (el keypad/joystick del celular
+  -- no siempre pasa por ahi). Un macro revisa: si estas QUIETO, mirando
+  -- hacia una pared y tu posicion no cambia, es un choque -> levita.
+  local function wallAhead(dir)
     if not DV[dir] then return false end
     local me = pos()
     local v = DV[dir]
-    local tp = {x = me.x + v[1], y = me.y + v[2], z = me.z}
     local tile
-    pcall(function() tile = g_map.getTile(tp) end)
-    if not tile then return false end            -- desconocido: no tocar
+    pcall(function() tile = g_map.getTile({x = me.x + v[1], y = me.y + v[2], z = me.z}) end)
+    if not tile then return false end
     local okw, walk = pcall(function() return tile:isWalkable() end)
-    if okw and walk then return false end        -- se puede caminar
-    -- una criatura bloqueando no es pared
+    if okw and walk then return false end
     local okc, crs = pcall(function() return tile:getCreatures() end)
     if okc and crs and #crs > 0 then return false end
-    -- escaleras / rampas / sqm vacio: lo maneja el cliente
-    local oke, empty = pcall(function() return tile:isEmpty() end)
-    local okb, blocking = pcall(function() return tile:isBlocking() end)
-    if oke and empty and okb and not blocking then return false end
-    local okp, ptile = pcall(function() return player:getTile() end)
-    if okp and ptile then
-      local okh, elev = pcall(function() return ptile:hasElevation(3) end)
-      if okh and elev then return false end
-    end
     return true
   end
 
-  local lastBumpTry = -1000000
-  local function onWalkAttempt(dir)
+  local lastPos, lastMove, lastBumpTry = nil, 0, -1000000
+  macro(100, function()
     if not lc.enabled or not g_game.isOnline() then return end
-    if type(dir) ~= "number" or dir > 3 then return end
-    if now - lastBumpTry < 1000 then return end     -- no repetir al mantener
-    if not isWallAhead(dir) then return end
-    lastBumpTry = now
-    levitate(false, dir)
-  end
-
-  pcall(function()
-    local gw = modules.game_walking
-    if not gw or type(gw.walk) ~= "function" then return end
-    -- guardar la original UNA sola vez (al recargar el bot no se encadena)
-    if not gw.__vbOrigWalk then gw.__vbOrigWalk = gw.walk end
-    local orig = gw.__vbOrigWalk
-    gw.walk = function(dir, ...)
-      pcall(onWalkAttempt, dir)
-      return orig(dir, ...)
+    local me = pos()
+    if not lastPos or me.x ~= lastPos.x or me.y ~= lastPos.y or me.z ~= lastPos.z then
+      lastPos = {x = me.x, y = me.y, z = me.z}
+      lastMove = now
+      return
     end
+    local okw, walking = pcall(function() return player:isWalking() end)
+    if okw and walking then lastMove = now; return end
+    if now - lastMove < 150 then return end
+    local d = facing()
+    if not d then return end
+    if now - lastBumpTry < 1200 then return end
+    if not wallAhead(d) then return end
+    local which = decide(d)
+    if not which then return end
+    lastBumpTry = now
+    levitate(false, d)
   end)
 end
 endSection(__sec)
