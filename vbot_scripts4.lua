@@ -1,9 +1,15 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 34)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 35)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v35
+--   - War Chase "CON PISOS" rehecho: ahora usa el FOLLOW del juego (como
+--     el follow manual que sube gradas/escaleras). Tu atacas; al cambiar
+--     el objetivo de piso el bot hace follow un momento para cruzarlo y
+--     vuelve a atacar. Sin leer el mapa: no traba.
 --
 --  CAMBIOS v34
 --   - War Chase: ya no traba el cliente. El seguimiento por pisos ya no
@@ -4373,8 +4379,8 @@ end
 --  Knight/Monk se pegan; Paladin/magos solo se acercan.
 -- ------------------------------------------------------------
 do
-  local WK = "warChaseV2"
-  local DEF = {mode = 1, safePk = true, rangedDist = 4}
+  local WK = "warChaseV3"
+  local DEF = {mode = 1, rangedDist = 4}
   if type(storage[WK]) ~= "table" then storage[WK] = {} end
   local wc = storage[WK]
   for k, v in pairs(DEF) do if wc[k] == nil then wc[k] = v end end
@@ -4382,160 +4388,79 @@ do
   local M_NORMAL, M_FLOORS, M_STOP = 1, 2, 3
   local MODE_TXT = {
     [M_NORMAL] = "Modo: NORMAL (mismo piso)",
-    [M_FLOORS] = "Modo: CON PISOS (sigue escaleras/rope)",
+    [M_FLOORS] = "Modo: CON PISOS (sigue por gradas/escaleras)",
     [M_STOP]   = "Modo: STOP (no persigue)",
   }
-  local MODE_COL = {[M_NORMAL] = "#66ff66", [M_FLOORS] = "#66ccff", [M_STOP] = "#888888"}
+  local MODE_COL = {[M_NORMAL]="#66ff66", [M_FLOORS]="#66ccff", [M_STOP]="#888888"}
 
-  local STEP_MS, MAX_PATH = 200, 12
   local CHASE, STAND = 1, 0
-  local active, prevMode, lastStep, lastFloor = false, nil, -1000000, -1000000
+  local active, prevMode = false, nil
 
   UIx.header("WAR CHASE PvP")
   local cUI = UIx.scriptPanel("War Chase")
-  cUI.switch:setVisible(false)                 -- no usa interruptor, usa modos
+  cUI.switch:setVisible(false)
   local modeBtn = cUI.setupBtn
   modeBtn:setText("Cambiar modo")
-
-  local function showMode()
-    UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode])
-  end
+  local function showMode() UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode]) end
   showMode()
-  modeBtn.onClick = function()
-    wc.mode = wc.mode % 3 + 1
-    showMode()
-  end
+  modeBtn.onClick = function() wc.mode = wc.mode % 3 + 1; showMode() end
 
   local function setChase(m)
-    if g_game.getChaseMode() ~= m then g_game.setChaseMode(m) end
+    pcall(function() if g_game.getChaseMode() ~= m then g_game.setChaseMode(m) end end)
+  end
+  local function followOf()
+    local c; pcall(function() c = g_game.getFollowingCreature() end); return c
+  end
+  local function doFollow(cr)
+    pcall(function() g_game.follow(cr) end)
+  end
+  local function cancelFollow()
+    if followOf() then pcall(function() g_game.cancelFollow() end) end
   end
 
-  -- paso hacia el objetivo. Usa findPath como maximo cada 400 ms (es
-  -- pesado); entre medio da un paso directo en diagonal, que es barato.
-  local lastPath = -1000000
-  local function stepTo(me, tp)
-    if now - lastPath >= 400 then
-      lastPath = now
-      local okp, path = pcall(function()
-        return findPath(me, tp, MAX_PATH,
-          {ignoreNonPathable = true, ignoreLastCreature = true, precision = 1})
-      end)
-      if okp and path and #path > 0 then
-        pcall(function() if walk then walk(path[1]) else g_game.walk(path[1], false) end end)
-        return
-      end
-    end
-    -- paso directo (sin calcular ruta)
-    local dx = (tp.x > me.x) and 1 or (tp.x < me.x) and -1 or 0
-    local dy = (tp.y > me.y) and 1 or (tp.y < me.y) and -1 or 0
-    if dx ~= 0 or dy ~= 0 then
-      pcall(function()
-        if walk then walk({x=me.x+dx, y=me.y+dy, z=me.z}) end
-      end)
-    end
-  end
+  -- idea: TU atacas normal. Cuando el objetivo cambia de piso, el bot hace
+  -- un "toque de follow" del juego sobre ese mismo jugador: el servidor te
+  -- sube/baja la grada o escalera siguiendolo (como el follow manual).
+  -- Apenas vuelves a estar en su piso, se quita el follow y sigues atacando.
+  local following = false
+  local sameFloorAt = 0
 
-  -- Proteccion anti-trampa: cuenta PKs SOLO en el piso que ya ves (no lee
-  -- otros pisos, eso trababa el cliente). Se usa justo antes de cambiar.
-  local function pksSameFloor(z)
-    local n = 0
-    for _, sp in ipairs(getSpectators()) do
-      if sp:isPlayer() and not sp:isLocalPlayer() and not Shared.isFriendly(sp) then
-        local ok, sk = pcall(function() return sp:getSkull() end)
-        local spos = sp:getPosition()
-        if ok and sk and sk >= 3 and sk <= 5 and spos and spos.z == z then n = n + 1 end
-      end
-    end
-    return n
-  end
-
-  -- Seguir al objetivo que cambio de piso. LIGERO: no lee tiles de otros
-  -- pisos; solo decide con el sqm de "last" (que ya esta en tu piso) si hay
-  -- que USAR algo (escalera/agujero/rope) o solo CAMINAR encima (grada).
-  local function followFloor(me, last)
-    if now - lastFloor < 500 then return end
-
-    -- acercarse si no estas pegado (un paso simple, sin findPath)
-    local dx = (last.x > me.x) and 1 or (last.x < me.x) and -1 or 0
-    local dy = (last.y > me.y) and 1 or (last.y < me.y) and -1 or 0
-    local d = math.max(math.abs(me.x - last.x), math.abs(me.y - last.y))
-    if d > 1 then
-      pcall(function()
-        if walk then walk(last) else g_game.walk(last, false) end
-      end)
-      lastFloor = now
-      return
-    end
-
-    if wc.safePk and pksSameFloor(me.z) >= 3 then
-      UIx.setLabel(cUI.status, "No sigo: muchos PKs cerca", "#ffaa44")
-      return
-    end
-
-    -- mirar SOLO el sqm de "last" (ya cargado, de tu piso)
-    local tile
-    pcall(function() tile = g_map.getTile(last) end)
-    if not tile then
-      -- no hay tile: solo caminar
-      pcall(function() if walk then walk(last) else g_game.walk(last, false) end end)
-      lastFloor = now
-      return
-    end
-
-    local walkable = true
-    pcall(function() walkable = tile:isWalkable() end)
-
-    if walkable then
-      -- GRADA / rampa: se sube pisando -> caminar al sqm
-      pcall(function() if walk then walk(last) else g_game.walk(last, false) end end)
-      UIx.setLabel(cUI.status, "Siguiendo (grada)...", "#66ccff")
-    else
-      -- ESCALERA / AGUJERO / ROPE: usar el objeto; si es rope, cuerda
-      local thing
-      pcall(function() thing = tile:getTopUseThing() end)
-      if thing then
-        local rope = findItem(3003)
-        if rope then pcall(function() useWith(rope, thing) end) end
-        pcall(function() g_game.use(thing) end)
-        UIx.setLabel(cUI.status, "Siguiendo (escalera/agujero)...", "#66ccff")
-      end
-    end
-    lastFloor = now
-  end
-
-  local lastTargetPos = nil
-  local lastTargetPos = nil
-  local lastTargetPos = nil
   macro(150, "War Chase PvP (modos)", function()
     if wc.mode == M_STOP then
-      if active then active = false; setChase(prevMode or STAND) end
+      if active then active = false; setChase(prevMode or STAND); cancelFollow(); following=false end
       return
     end
 
     local t = g_game.getAttackingCreature()
-    if t and t:isPlayer() then
-      if not active then active = true; prevMode = g_game.getChaseMode() end
-      local melee = Prof.isMelee()
-      setChase(melee and CHASE or STAND)
-
-      local me, tp = pos(), t:getPosition()
-      if me and tp then
-        if me.z == tp.z then
-          lastTargetPos = {x = tp.x, y = tp.y, z = tp.z}
-          local d = math.max(math.abs(me.x - tp.x), math.abs(me.y - tp.y))
-          local keep = melee and 1 or (wc.rangedDist or 4)
-          if d > keep and not player:isWalking() and now - lastStep >= STEP_MS then
-            lastStep = now
-            stepTo(me, tp)
-          end
-        elseif wc.mode == M_FLOORS and lastTargetPos and lastTargetPos.z == me.z then
-          -- el objetivo ya no esta en tu piso: seguirlo por donde se fue
-          followFloor(me, lastTargetPos)
-        end
+    if not (t and t:isPlayer()) then
+      if active then active=false; setChase(prevMode or STAND)
+        if following then cancelFollow(); following=false end
       end
-    elseif active then
-      active = false
-      setChase(prevMode or STAND)
+      return
+    end
+
+    if not active then active=true; prevMode=g_game.getChaseMode() end
+
+    local me, tp = pos(), t:getPosition()
+    if not (me and tp) then return end
+
+    if me.z == tp.z then
+      -- mismo piso: atacar con chase (melee) y quitar cualquier follow
+      sameFloorAt = now
+      if following then cancelFollow(); following=false end
+      setChase(Prof.isMelee() and CHASE or STAND)
+      UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode])
+    else
+      -- objetivo en OTRO piso
+      if wc.mode == M_FLOORS then
+        -- toque de follow: el juego te lleva por la grada/escalera
+        if followOf() ~= t then doFollow(t) end
+        following = true
+        UIx.setLabel(cUI.status, "Siguiendo por piso (follow)...", "#66ccff")
+      else
+        -- modo NORMAL: no perseguir a otro piso
+        if following then cancelFollow(); following=false end
+      end
     end
   end)
 end
