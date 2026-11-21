@@ -1,0 +1,28 @@
+# ============================================================
+#  AUTORIZADOS - Scripts Pazzur
+#  Un nombre de personaje por linea, tal como sale en el juego.
+#  Para AGREGAR: escribe el nombre en una linea nueva y guarda.
+#  Para QUITAR: borra su linea y guarda.
+#  Las lineas que empiezan con # son notas y se ignoran.
+# ============================================================
+Mara
+Lord gastly
+Valente Alfaro
+Marazhina
+Gm Fierrov
+Jerome Valeska
+Gastly Black
+Nvsta
+Panfilo
+Gastly
+Que Miras Bobo
+Suden Death
+El De La G Grande
+Oppenheimer
+Salo Crickomax
+Viola Mentes
+Bnvouxchvlwgrpasgwd
+Maraa
+Valuzeim
+United
+With Colunga
