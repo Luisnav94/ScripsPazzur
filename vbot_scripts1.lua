@@ -1,9 +1,17 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 28)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 29)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v29
+--   - Party Support: ayuda tambien a los de tu GUILD (por el emblema).
+--     Nueva ventana "Guild: vida y boost": pocion de VIDA para amigos y
+--     BOOST por turnos (ej: exura boost "{name}") a cada compañero de la
+--     guild/party en pantalla, recordando a quien ya se lo dio.
+--   - Exani Hur: ya no sale "exhausted" con utani tempo hur / utito
+--     tempo: queda en cola, aparta el turno y se lanza apenas se pueda.
 --
 --  CAMBIOS v28
 --   - NUEVO "Exani Hur" (pestana Tools): boton "Levitar" que elige solo
@@ -358,9 +366,12 @@ local Shared = {
   -- comparten exhaust de 2 s. Si se lanzan juntos sale "You are exhausted".
   lastSupport    = -1000000,
   supportBlock   = 0,
+  supportReserve = 0,   -- Exani Hur "aparta" el turno: los demas esperan
 }
 local SUPPORT_GAP = 2000
-function Shared.supportReady()
+-- ignoreReserve = true solo lo usa quien hizo la reserva (Exani Hur)
+function Shared.supportReady(ignoreReserve)
+  if not ignoreReserve and now < (Shared.supportReserve or 0) then return false end
   return now - (Shared.lastSupport or -1000000) >= SUPPORT_GAP
      and now >= (Shared.supportBlock or 0)
 end
@@ -4968,6 +4979,10 @@ endSection(__sec)
 --  - Sirve para todas las profesiones (antes "EK Support").
 --  - Runa de curacion (UH), pocion de mana y hechizo de curar amigo
 --    (ej: exura sio "{name}" para Druid).
+--  - Ayuda a party, a los de tu GUILD (por el emblema) y a la lista.
+--  - Boton "Guild: vida y boost": pocion de VIDA para amigos y BOOST a
+--    la guild por turnos (ej: exura boost "{name}"): se lo lanza a cada
+--    compañero en rotacion y recuerda a quien ya se lo dio.
 -- #####################################################################
 __sec = startSection("HP")
 do
@@ -4997,11 +5012,19 @@ if ec.sioEnabled == nil then ec.sioEnabled = false end
 ec.sioWords = ec.sioWords or 'exura sio "{name}"'
 ec.sioHp    = ec.sioHp or 70
 ec.sioMana  = ec.sioMana or 140
+if ec.helpGuild == nil then ec.helpGuild = true end
+ec.hpPotId   = ec.hpPotId or 0
+ec.hpPotHp   = ec.hpPotHp or 50
+if ec.boostEnabled == nil then ec.boostEnabled = false end
+ec.boostWords = ec.boostWords or 'exura boost "{name}"'
+ec.boostEvery = ec.boostEvery or 60
+ec.boostGap   = ec.boostGap or 2
+ec.boostMana  = ec.boostMana or 100
 
 g_ui.loadUIFromString([[
 EKSupportWindow < MainWindow
   !text: tr('Party Support - Amigos y Party')
-  size: 340 720
+  size: 340 744
   @onEscape: self:hide()
 
   VbTitle
@@ -5018,9 +5041,17 @@ EKSupportWindow < MainWindow
     margin-top: 4
     text: Ayudar a los miembros de mi party
 
+  CheckBox
+    id: helpGuild
+    anchors.top: helpParty.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Ayudar a los de mi guild (por el emblema)
+
   Label
     id: lblNames
-    anchors.top: helpParty.bottom
+    anchors.top: helpGuild.bottom
     anchors.left: parent.left
     margin-top: 8
     text-auto-resize: true
@@ -5271,6 +5302,170 @@ EKSupportWindow < MainWindow
     text: Activar
 
   Button
+    id: moreBtn
+    anchors.bottom: parent.bottom
+    anchors.left: enableBtn.right
+    margin-left: 6
+    width: 130
+    text: Guild: vida y boost
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+
+EKMoreWindow < MainWindow
+  !text: tr('Party Support - Guild: vida y boost')
+  size: 340 470
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tHp
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Pocion de VIDA para el amigo
+
+  BotItem
+    id: hpPotItem
+    anchors.top: tHp.bottom
+    anchors.left: parent.left
+    margin-top: 4
+
+  Label
+    id: lHpPot
+    anchors.verticalCenter: hpPotItem.verticalCenter
+    anchors.left: hpPotItem.right
+    margin-left: 8
+    width: 150
+    text: Usar si su HP % <=
+
+  SpinBox
+    id: hpPotHp
+    anchors.verticalCenter: hpPotItem.verticalCenter
+    anchors.left: lHpPot.right
+    width: 45
+    minimum: 0
+    maximum: 100
+
+  VbHint
+    id: hHp
+    anchors.top: hpPotItem.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Va despues de la UH y del hechizo de curar. Usa la distancia maxima de la otra ventana.
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: hHp.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  VbTitle
+    id: tBoost
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Boost a la guild (por turnos)
+
+  CheckBox
+    id: boostEnabled
+    anchors.top: tBoost.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Lanzar el boost a cada compañero, uno por uno
+
+  Label
+    id: lBoostWords
+    anchors.top: boostEnabled.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    width: 70
+    text: Hechizo:
+
+  TextEdit
+    id: boostWords
+    anchors.verticalCenter: lBoostWords.verticalCenter
+    anchors.left: lBoostWords.right
+    anchors.right: parent.right
+    height: 20
+
+  Label
+    id: lEvery
+    anchors.top: lBoostWords.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 210
+    text: Repetir a cada uno cada (seg)
+
+  SpinBox
+    id: boostEvery
+    anchors.verticalCenter: lEvery.verticalCenter
+    anchors.left: lEvery.right
+    width: 60
+    minimum: 5
+    maximum: 3600
+    step: 5
+
+  Label
+    id: lGap
+    anchors.top: lEvery.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 210
+    text: Pausa entre lanzamientos (seg)
+
+  SpinBox
+    id: boostGap
+    anchors.verticalCenter: lGap.verticalCenter
+    anchors.left: lGap.right
+    width: 60
+    minimum: 1
+    maximum: 60
+    step: 1
+
+  Label
+    id: lBMana
+    anchors.top: lGap.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 210
+    text: Mana minima
+
+  SpinBox
+    id: boostMana
+    anchors.verticalCenter: lBMana.verticalCenter
+    anchors.left: lBMana.right
+    width: 70
+    minimum: 0
+    maximum: 50000
+    step: 10
+
+  VbHint
+    id: hBoost
+    anchors.top: lBMana.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: {name} = nombre del compañero. Solo se lanza si nadie necesita curacion, con tu HP >= 80% y sin exhaust de curas ni de soporte. Si falla (exhausted), ese compañero se reintenta.
+
+  Label
+    id: boostInfo
+    anchors.top: hBoost.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 34
+    text-wrap: true
+    text-auto-resize: false
+    color: #88ccff
+    text: Turno: -
+
+  Button
     id: closeBtn
     anchors.bottom: parent.bottom
     anchors.right: parent.right
@@ -5292,6 +5487,33 @@ end
 
 ekWin.helpParty:setChecked(ec.helpParty)
 ekWin.helpParty.onCheckChange = function(w, c) ec.helpParty = c end
+ekWin.helpGuild:setChecked(ec.helpGuild)
+ekWin.helpGuild.onCheckChange = function(w, c) ec.helpGuild = c end
+
+local mWin = UI.createWindow('EKMoreWindow', rootWidget)
+mWin:hide()
+mWin.hpPotItem:setItemId(ec.hpPotId or 0)
+mWin.hpPotItem.onItemChange = function(w) ec.hpPotId = w:getItemId() end
+mWin.hpPotHp:setValue(ec.hpPotHp or 0)
+mWin.hpPotHp.onValueChange = function(w, v) ec.hpPotHp = v end
+mWin.boostEnabled:setChecked(ec.boostEnabled)
+mWin.boostEnabled.onCheckChange = function(w, c) ec.boostEnabled = c end
+mWin.boostWords:setText(ec.boostWords)
+mWin.boostWords.onTextChange = function(w, t) ec.boostWords = t end
+mWin.boostEvery:setValue(ec.boostEvery)
+mWin.boostEvery.onValueChange = function(w, v) ec.boostEvery = v end
+mWin.boostGap:setValue(ec.boostGap)
+mWin.boostGap.onValueChange = function(w, v) ec.boostGap = v end
+mWin.boostMana:setValue(ec.boostMana)
+mWin.boostMana.onValueChange = function(w, v) ec.boostMana = v end
+mWin.closeBtn.onClick = function() mWin:hide() end
+ekWin.moreBtn.onClick = function() UIx.toggleWindow(mWin) end
+local lastBoostInfo = ""
+local function setBoostInfo(t)
+  if t == lastBoostInfo then return end
+  lastBoostInfo = t
+  pcall(function() mWin.boostInfo:setText(t) end)
+end
 ekWin.customNames:setText(ec.customNames or "")
 ekWin.customNames.onTextChange = function(w, text) ec.customNames = text end
 ekWin.uhItem:setItemId(ec.uhId or 0)
@@ -5373,6 +5595,37 @@ local function isParty(spec)
   return ok2 and type(sh) == "number" and sh >= 3 and sh <= 10
 end
 
+-- De mi guild: emblema verde (guild en guerra) o de miembro
+local GUILD_EMBLEMS = {[EmblemGreen or 1] = true, [EmblemMember or 4] = true}
+local function isGuild(spec)
+  local ok, em = pcall(function() return spec:getEmblem() end)
+  return ok and GUILD_EMBLEMS[em] == true
+end
+
+-- ----- Boost por turnos -----
+-- lastBoost[nombre] = cuando se le dio por ultima vez
+local lastBoost, boostPending = {}, nil
+local lastBoostCast, boostBlockUntil = -1000000, 0
+local function boostFor(name)
+  local w = trim(ec.boostWords)
+  if w:find("{name}", 1, true) then
+    return (w:gsub("{name}", function() return name end))
+  end
+  return w .. ' "' .. name .. '"'
+end
+-- Si el hechizo falla justo despues de lanzarlo, ese compañero se reintenta
+onTextMessage(function(mode, text)
+  if not boostPending or now - boostPending.at > 1200 then return end
+  local t = (text or ""):lower()
+  if t:find("exhausted", 1, true) or t:find("not possible", 1, true)
+     or t:find("not enough mana", 1, true) or t:find("cannot", 1, true)
+     or t:find("you need", 1, true) then
+    lastBoost[boostPending.key] = boostPending.prev
+    boostBlockUntil = now + 1000
+    boostPending = nil
+  end
+end)
+
 local function sightClear(a, b)
   local ok, res = pcall(function() return g_map.isSightClear(a, b, true) end)
   if not ok or res == nil then return true end
@@ -5401,14 +5654,18 @@ macro(200, function()
   local maxDist = ec.maxDist or 5
   local prioNames = getPriorityList()
   local candidates, farName = {}, nil
+  local boostList = {}   -- todos los de la guild/party/lista en pantalla
 
   for _, spec in ipairs(getSpectators()) do
     if spec and spec:isPlayer() and not spec:isLocalPlayer() then
       local name = spec:getName() or ""
       local isPrio = prioNames[name:lower()] == true
-      if isPrio or (ec.helpParty and isParty(spec)) then
+      if isPrio or (ec.helpParty and isParty(spec)) or (ec.helpGuild and isGuild(spec)) then
         local sPos = spec:getPosition()
         local hp = spec:getHealthPercent() or 0
+        if sPos and sPos.z == myPos.z and hp > 0 then
+          table.insert(boostList, name)
+        end
         if sPos and sPos.z == myPos.z and hp > 0 then
           local dist = math.max(math.abs(myPos.x - sPos.x), math.abs(myPos.y - sPos.y))
           if dist <= maxDist then
@@ -5424,7 +5681,48 @@ macro(200, function()
     end
   end
 
+  -- Boost por turnos (lo mas bajo en prioridad: solo si nadie necesita cura)
+  local function tryBoost()
+    if not ec.boostEnabled or trim(ec.boostWords) == "" or #boostList == 0 then
+      return false
+    end
+    -- siguiente en la rueda: el que hace mas tiempo no recibe boost
+    local every = (ec.boostEvery or 60) * 1000
+    local pick, pickT, ready = nil, math.huge, 0
+    for _, n in ipairs(boostList) do
+      local tl = lastBoost[n:lower()] or -1000000000
+      if now - tl >= every then
+        ready = ready + 1
+        if tl < pickT then pick, pickT = n, tl end
+      end
+    end
+    if not pick then
+      setBoostInfo("Todos con boost (" .. #boostList .. "). Siguiente vuelta pronto.")
+      return false
+    end
+    setBoostInfo("Turno: " .. pick .. "  |  faltan " .. ready .. " de " .. #boostList)
+    if now - lastBoostCast < (ec.boostGap or 2) * 1000 then return false end
+    if now < boostBlockUntil then return false end
+    if myHp < 80 then return false end
+    if myMana() < (ec.boostMana or 0) then
+      setEkStatus("Boost: falta mana", "#ffaa44")
+      return false
+    end
+    -- no pisar curas ni hechizos de soporte (haste, utito, exani hur)
+    if now - Shared.lastSelfHeal < 1000 or groupCooldown(2) then return false end
+    if not Shared.supportReady() then return false end
+    local key = pick:lower()
+    boostPending = {key = key, prev = lastBoost[key], at = now}
+    lastBoost[key] = now
+    lastBoostCast = now
+    Shared.lastSupport = now
+    say(boostFor(pick))
+    setEkStatus("Boost a " .. pick, "#cc88ff")
+    return true
+  end
+
   if #candidates == 0 then
+    if tryBoost() then return end
     if farName then
       setEkStatus(farName .. " esta a mas de " .. maxDist .. " sqm", "#ffcc66")
     else
@@ -5486,6 +5784,29 @@ macro(200, function()
     end
   end
 
+  -- 1c) Pocion de VIDA al amigo
+  local hpPotId = ec.hpPotId or 0
+  if hpPotId > 0 and now - lastPot >= POT_CD
+     and now - Shared.lastSelfPotion >= SELF_POT_GAP
+     and not EquipCore.holdPotion(100) then
+    for _, t in ipairs(candidates) do
+      if t.hp <= (ec.hpPotHp or 0) then
+        local pot = findItem(hpPotId)
+        if pot then
+          useWith(pot, t.creature)
+        else
+          pcall(function() g_game.useInventoryItemWith(hpPotId, t.creature, 0) end)
+        end
+        lastPot = now
+        Shared.lastSelfPotion = now
+        Shared.lastUseId, Shared.lastUseAt = hpPotId, now
+        setEkStatus("Vida a " .. t.name .. " (" .. t.hp .. "%)" ..
+          (pot and "" or " por hotkey"), "#88ff88")
+        return
+      end
+    end
+  end
+
   -- 2) Pocion de mana al amigo
   local potId = ec.manaPotId or 0
   local manaUnknown = true
@@ -5512,7 +5833,10 @@ macro(200, function()
     end
   end
 
-  -- 3) Nada que hacer: mostrar a quien vigila
+  -- 3) Boost por turnos (si nadie necesita nada)
+  if not noSight and tryBoost() then return end
+
+  -- 4) Nada que hacer: mostrar a quien vigila
   if noSight then
     setEkStatus("Sin linea de vision a " .. noSight, "#ffaa44")
     return
@@ -9490,7 +9814,10 @@ endSection(__sec)
 --    el paso antes de que el cliente lo cancele.
 --  - Boton manual: si no puede saber si es arriba o abajo, prueba
 --    primero arriba y la siguiente vez abajo.
---  - Respeta el exhaust de soporte (Auto Haste, Buff de ataque, Exiva).
+--  - Sin "exhausted" con utani tempo hur / utito tempo: si el exhaust de
+--    soporte esta activo, el levitar queda EN COLA, aparta el turno
+--    (Auto Haste, Buff, Exiva y Boost esperan) y se lanza apenas se
+--    pueda (hasta 3 s). Si aun asi sale "exhausted", reintenta 1 vez.
 --  - Solo funciona mirando al norte, sur, este u oeste (no diagonal).
 -- =====================================================================
 __sec = startSection("Tools")
@@ -9651,42 +9978,65 @@ ExaniHurQuick < Panel
     return nil, d
   end
 
-  -- ----- Lanzar -----
+  -- ----- Lanzar (con cola para no chocar con haste / utito) -----
   local lastCast, lastGuess, castAt = -1000000, nil, -1000000
-  local function cast(which, manual)
-    if (lc.minMana or 0) > 0 and mana() < lc.minMana then
-      setSt("Falta mana (" .. lc.minMana .. ")", "#ffaa44")
-      return false
-    end
-    if not manual and not Shared.supportReady() then return false end
+  local queued = nil          -- {which, untilT, retried}
+  local QUEUE_MS = 3000
+
+  local function doCast(which)
     local words = "exani hur " .. which
     local ok = pcall(function() say(words) end)
     if not ok then pcall(function() g_game.talk(words) end) end
     lastCast, castAt = now, now
     Shared.lastSupport = now
+    Shared.supportReserve = 0
     setSt("Lanzado: " .. words, "#88ccff")
+  end
+
+  local function cast(which, manual, retried)
+    if (lc.minMana or 0) > 0 and mana() < lc.minMana then
+      setSt("Falta mana (" .. lc.minMana .. ")", "#ffaa44")
+      return false
+    end
+    if Shared.supportReady(true) then
+      doCast(which)
+      queued = {which = which, sentAt = now, retried = retried}
+      return true
+    end
+    -- Exhaust de soporte activo: a la cola y apartar el turno
+    queued = {which = which, untilT = now + QUEUE_MS, retried = retried, waiting = true}
+    Shared.supportReserve = now + QUEUE_MS
+    setSt("En cola: exani hur " .. which .. " (esperando exhaust)", "#ffcc66")
     return true
   end
 
-  -- Elige solo. Si no sabe, alterna: primero arriba, luego abajo.
-  local function levitate(manual, dir)
-    local which, d = decide(dir)
-    if not d then
-      setSt("Mira al norte, sur, este u oeste", "#ffaa44")
+  -- Lanza lo que este en cola apenas pase el exhaust
+  macro(50, function()
+    if not queued or not queued.waiting then return end
+    if now > queued.untilT then
+      queued = nil
+      Shared.supportReserve = 0
+      setSt("Cola vencida: no se lanzo", "#ffaa44")
       return
     end
-    if not which and not manual then
-      setSt("Aqui no se puede levitar", "#aaaaaa")
-      return
+    if Shared.supportReady(true) then
+      local w, r = queued.which, queued.retried
+      doCast(w)
+      queued = {which = w, sentAt = now, retried = r}
     end
-    if not which then
-      which = (lastGuess == "up") and "down" or "up"
-      lastGuess = which
-    else
-      lastGuess = nil
+  end)
+
+  -- Si sale "exhausted" justo despues de lanzarlo: reintentar 1 vez
+  onTextMessage(function(mode, text)
+    if not queued or queued.waiting or not queued.sentAt then return end
+    if now - queued.sentAt > 900 then queued = nil; return end
+    local t = (text or ""):lower()
+    if t:find("exhausted", 1, true) and not queued.retried then
+      local w = queued.which
+      Shared.supportBlock = now + 1000
+      cast(w, true, true)
     end
-    cast(which, manual)
-  end
+  end)
 
   quick.lev.onClick = function() levitate(true) end
   hWin.autoBtn.onClick = function() levitate(true) end
