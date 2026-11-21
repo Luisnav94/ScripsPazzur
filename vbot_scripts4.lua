@@ -1,9 +1,15 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 33)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 34)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v34
+--   - War Chase: ya no traba el cliente. El seguimiento por pisos ya no
+--     lee tiles de otros pisos en bucle (eso trababa 2-3 s), y el paso
+--     usa findPath como mucho cada 400 ms (antes cada 100). Intervalo del
+--     macro subido a 150 ms.
 --
 --  CAMBIOS v33
 --   - War Chase "CON PISOS": ahora distingue GRADAS (se suben pisando:
@@ -4404,117 +4410,103 @@ do
     if g_game.getChaseMode() ~= m then g_game.setChaseMode(m) end
   end
 
+  -- paso hacia el objetivo. Usa findPath como maximo cada 400 ms (es
+  -- pesado); entre medio da un paso directo en diagonal, que es barato.
+  local lastPath = -1000000
   local function stepTo(me, tp)
-    local path = findPath(me, tp, MAX_PATH,
-      {ignoreNonPathable = true, ignoreLastCreature = true, precision = 1})
-    if path and #path > 0 then
-      if walk then walk(path[1]) else g_game.walk(path[1], false) end
+    if now - lastPath >= 400 then
+      lastPath = now
+      local okp, path = pcall(function()
+        return findPath(me, tp, MAX_PATH,
+          {ignoreNonPathable = true, ignoreLastCreature = true, precision = 1})
+      end)
+      if okp and path and #path > 0 then
+        pcall(function() if walk then walk(path[1]) else g_game.walk(path[1], false) end end)
+        return
+      end
+    end
+    -- paso directo (sin calcular ruta)
+    local dx = (tp.x > me.x) and 1 or (tp.x < me.x) and -1 or 0
+    local dy = (tp.y > me.y) and 1 or (tp.y < me.y) and -1 or 0
+    if dx ~= 0 or dy ~= 0 then
+      pcall(function()
+        if walk then walk({x=me.x+dx, y=me.y+dy, z=me.z}) end
+      end)
     end
   end
 
-  -- cuantos PKs hay cerca de un punto (para la proteccion anti-trampa)
-  local function pksNear(p, z)
+  -- Proteccion anti-trampa: cuenta PKs SOLO en el piso que ya ves (no lee
+  -- otros pisos, eso trababa el cliente). Se usa justo antes de cambiar.
+  local function pksSameFloor(z)
     local n = 0
     for _, sp in ipairs(getSpectators()) do
       if sp:isPlayer() and not sp:isLocalPlayer() and not Shared.isFriendly(sp) then
         local ok, sk = pcall(function() return sp:getSkull() end)
         local spos = sp:getPosition()
-        if ok and sk and sk >= 3 and sk <= 5 and spos and spos.z == z then
-          n = n + 1
-        end
+        if ok and sk and sk >= 3 and sk <= 5 and spos and spos.z == z then n = n + 1 end
       end
     end
     return n
   end
 
-  -- seguir al objetivo cuando cambia de piso desde "last"
-  -- seguir al objetivo cuando cambia de piso desde "last"
-  --  * GRADA (se sube pisando): solo caminar al sqm, el servidor sube solo.
-  --  * ESCALERA / AGUJERO (se usa): usar el objeto del sqm.
-  --  * ROPE spot: usar la cuerda sobre el sqm.
-  local function floorKind(last, me)
-    -- hacia abajo: el sqm de abajo tiene elevacion (grada baja / agujero)
-    local dnTile, upTile
-    pcall(function() dnTile = g_map.getTile({x=last.x, y=last.y, z=me.z+1}) end)
-    pcall(function() upTile = g_map.getTile({x=last.x, y=last.y, z=me.z-1}) end)
-    local downElev = false
-    pcall(function() downElev = dnTile and dnTile:hasElevation(2) end)
-    local upWalk = false
-    pcall(function() upWalk = upTile and upTile:isWalkable() end)
-    if downElev then return "down" end
-    if upWalk then return "up" end
-    return nil
-  end
-
+  -- Seguir al objetivo que cambio de piso. LIGERO: no lee tiles de otros
+  -- pisos; solo decide con el sqm de "last" (que ya esta en tu piso) si hay
+  -- que USAR algo (escalera/agujero/rope) o solo CAMINAR encima (grada).
   local function followFloor(me, last)
-    if now - lastFloor < 600 then return end
+    if now - lastFloor < 500 then return end
 
-    -- acercarse si no estas pegado
+    -- acercarse si no estas pegado (un paso simple, sin findPath)
+    local dx = (last.x > me.x) and 1 or (last.x < me.x) and -1 or 0
+    local dy = (last.y > me.y) and 1 or (last.y < me.y) and -1 or 0
     local d = math.max(math.abs(me.x - last.x), math.abs(me.y - last.y))
-    if d > 1 then stepTo(me, last); return end
-
-    -- proteccion anti-trampa
-    if wc.safePk then
-      if pksNear(last, me.z - 1) >= 2 or pksNear(last, me.z + 1) >= 2 then
-        UIx.setLabel(cUI.status, "No sigo: 2+ PKs al cambiar de piso", "#ffaa44")
-        return
-      end
-    end
-
-    local tile
-    pcall(function() tile = g_map.getTile(last) end)
-    local thing
-    if tile then pcall(function() thing = tile:getTopUseThing() end) end
-
-    -- 1) ROPE spot: hay un rope spot si el objeto es un "hole" de cuerda.
-    --    Probar la cuerda (id 3003) sobre el sqm; si no es rope, no pasa nada.
-    local rope = findItem(3003)
-    local isRopeSpot = false
-    if tile then
-      pcall(function()
-        -- rope spots suelen tener ground que pide cuerda; lo intentamos solo
-        -- si el sqm NO es caminable (no es una grada normal)
-        isRopeSpot = not tile:isWalkable()
-      end)
-    end
-
-    -- 2) Decidir el tipo de cambio de piso
-    local kind = floorKind(last, me)
-
-    -- GRADA (subes/bajas pisando): caminar al sqm
-    if kind == "up" or kind == "down" then
+    if d > 1 then
       pcall(function()
         if walk then walk(last) else g_game.walk(last, false) end
       end)
       lastFloor = now
-      UIx.setLabel(cUI.status, "Siguiendo (grada " .. kind .. ")...", "#66ccff")
       return
     end
 
-    -- ESCALERA / AGUJERO (se usa): usar el objeto
-    if thing then
-      local okUse = pcall(function() g_game.use(thing) end)
-      -- si parecia rope spot y hay cuerda, intentar la cuerda tambien
-      if rope and isRopeSpot then
-        pcall(function() useWith(rope, thing) end)
-      end
-      if okUse then
-        lastFloor = now
-        UIx.setLabel(cUI.status, "Siguiendo (escalera/agujero)...", "#66ccff")
-        return
-      end
+    if wc.safePk and pksSameFloor(me.z) >= 3 then
+      UIx.setLabel(cUI.status, "No sigo: muchos PKs cerca", "#ffaa44")
+      return
     end
 
-    -- ultimo recurso: caminar al sqm
-    pcall(function()
-      if walk then walk(last) else g_game.walk(last, false) end
-    end)
+    -- mirar SOLO el sqm de "last" (ya cargado, de tu piso)
+    local tile
+    pcall(function() tile = g_map.getTile(last) end)
+    if not tile then
+      -- no hay tile: solo caminar
+      pcall(function() if walk then walk(last) else g_game.walk(last, false) end end)
+      lastFloor = now
+      return
+    end
+
+    local walkable = true
+    pcall(function() walkable = tile:isWalkable() end)
+
+    if walkable then
+      -- GRADA / rampa: se sube pisando -> caminar al sqm
+      pcall(function() if walk then walk(last) else g_game.walk(last, false) end end)
+      UIx.setLabel(cUI.status, "Siguiendo (grada)...", "#66ccff")
+    else
+      -- ESCALERA / AGUJERO / ROPE: usar el objeto; si es rope, cuerda
+      local thing
+      pcall(function() thing = tile:getTopUseThing() end)
+      if thing then
+        local rope = findItem(3003)
+        if rope then pcall(function() useWith(rope, thing) end) end
+        pcall(function() g_game.use(thing) end)
+        UIx.setLabel(cUI.status, "Siguiendo (escalera/agujero)...", "#66ccff")
+      end
+    end
     lastFloor = now
   end
 
   local lastTargetPos = nil
   local lastTargetPos = nil
-  macro(100, "War Chase PvP (modos)", function()
+  local lastTargetPos = nil
+  macro(150, "War Chase PvP (modos)", function()
     if wc.mode == M_STOP then
       if active then active = false; setChase(prevMode or STAND) end
       return
