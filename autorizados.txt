@@ -5,7 +5,6 @@
 #  Para QUITAR: borra su linea y guarda.
 #  Las lineas que empiezan con # son notas y se ignoran.
 # ============================================================
-Mara
 Lord gastly
 Valente Alfaro
 Marazhina
@@ -24,5 +23,3 @@ Viola Mentes
 Bnvouxchvlwgrpasgwd
 Maraa
 Valuzeim
-United
-With Colunga
