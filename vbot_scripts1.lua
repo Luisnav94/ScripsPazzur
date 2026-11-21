@@ -1,9 +1,13 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 30)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 30b)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v30b
+--   - Exani Hur: arreglado "attempt to call global 'levitate'". Faltaba
+--     la funcion levitate al rehacer el archivo; ya esta.
 --
 --  CAMBIOS v30
 --   - Exani Hur: el modo automatico volvio a funcionar. Ya no depende de
@@ -9912,6 +9916,26 @@ ExaniHurQuick < Panel
       cast(w, true, true)
     end
   end)
+
+  -- Elige solo. Si no sabe, alterna: primero arriba, luego abajo.
+  local function levitate(manual, dir)
+    local which, d = decide(dir)
+    if not d then
+      setSt("Mira al norte, sur, este u oeste", "#ffaa44")
+      return
+    end
+    if not which and not manual then
+      setSt("Aqui no se puede levitar", "#aaaaaa")
+      return
+    end
+    if not which then
+      which = (lastGuess == "up") and "down" or "up"
+      lastGuess = which
+    else
+      lastGuess = nil
+    end
+    cast(which, manual)
+  end
 
   quick.lev.onClick = function() levitate(true) end
   hWin.autoBtn.onClick = function() levitate(true) end
