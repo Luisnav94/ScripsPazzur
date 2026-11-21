@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 35)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 36)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v36
+--   - NUEVO "Auto Follow" (pestana Tools): prueba del follow del juego
+--     para seguir a un compañero (base para el MC). Sirve para comprobar
+--     si el follow sube/baja gradas en tu servidor.
 --
 --  CAMBIOS v35
 --   - War Chase "CON PISOS" rehecho: ahora usa el FOLLOW del juego (como
@@ -253,6 +258,7 @@
 --  12. TOOLS - Auto Haste (reemplaza al haste de Conditions)
 --  13. TOOLS - Exiva en el minimapa
 --  14. TOOLS - Exani Hur (levitar arriba / abajo)
+--  15. TOOLS - Auto Follow (prueba del follow, para MC)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -10100,6 +10106,157 @@ ExaniHurQuick < Panel
     if not which then return end
     lastBumpTry = now
     levitate(false, d)
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 15. TOOLS - AUTO FOLLOW (prueba del follow, para MC)
+--  Sigue a un compañero con el FOLLOW del juego (el mismo del clic
+--  derecho). Sirve para probar si el follow sube/baja gradas y
+--  escaleras en tu servidor. Si funciona, lo acoplamos al War Chase.
+--  - Casilla con el nombre del compañero.
+--  - Boton "Probar follow ahora" para forzarlo una vez.
+--  - Reintenta el follow si se pierde (cada 1 s).
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local FK = "autoFollowV1"
+  if type(storage[FK]) ~= "table" then
+    storage[FK] = {enabled = false, name = ""}
+  end
+  local fc = storage[FK]
+  local function trim(t) return (tostring(t or "")):match("^%s*(.-)%s*$") end
+  local function norm(s) return trim(s):lower() end
+
+  g_ui.loadUIFromString([[
+AutoFollowWindow < MainWindow
+  !text: tr('Auto Follow')
+  size: 300 210
+  @onEscape: self:hide()
+
+  Label
+    id: lName
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Nombre del compañero a seguir:
+
+  TextEdit
+    id: name
+    anchors.top: lName.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+
+  Button
+    id: testBtn
+    anchors.top: name.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 24
+    text: Probar follow ahora
+
+  VbHint
+    id: hint
+    anchors.top: testBtn.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Prueba si sube y baja gradas/escaleras. Si funciona, lo unimos al War Chase.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("AUTO FOLLOW")
+  local fUI = UIx.scriptPanel("Auto Follow")
+  local fWin = UI.createWindow('AutoFollowWindow', rootWidget)
+  fWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(fUI.status, t, c)
+    UIx.setLabel(fWin.status, t, c)
+  end
+
+  fWin.name:setText(fc.name or "")
+  fWin.name.onTextChange = function(w, t) fc.name = trim(t) end
+  fWin.closeBtn.onClick = function() fWin:hide() end
+  fUI.setupBtn.onClick = function() UIx.toggleWindow(fWin) end
+
+  -- buscar al compañero por nombre en pantalla
+  local function findMate()
+    local target = norm(fc.name)
+    if target == "" then return nil end
+    for _, sp in ipairs(getSpectators()) do
+      if sp:isPlayer() and not sp:isLocalPlayer() then
+        if norm(sp:getName()) == target then return sp end
+      end
+    end
+    return nil
+  end
+
+  local function followOf()
+    local c; pcall(function() c = g_game.getFollowingCreature() end); return c
+  end
+
+  local function doFollow(cr, manual)
+    pcall(function() g_game.follow(cr) end)
+    setSt("Siguiendo a " .. (cr:getName() or "?"), "#66ccff")
+  end
+
+  fWin.testBtn.onClick = function()
+    local m = findMate()
+    if not m then setSt("No veo a '" .. (fc.name or "") .. "' en pantalla", "#ffaa44") return end
+    doFollow(m, true)
+  end
+
+  UIx.bindSwitch(fc, fUI.switch, fWin.enableBtn, function(v)
+    if not v then pcall(function() if followOf() then g_game.cancelFollow() end end) end
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  local lastTry = -1000000
+  macro(300, function()
+    if not fc.enabled or not g_game.isOnline() then return end
+    if trim(fc.name) == "" then setSt("Escribe un nombre", "#ffaa44") return end
+    local m = findMate()
+    if not m then
+      setSt("Esperando a '" .. fc.name .. "'...", "#ffaa44")
+      return
+    end
+    -- si no lo estamos siguiendo ya, (re)activar follow
+    if followOf() ~= m then
+      if now - lastTry >= 1000 then
+        lastTry = now
+        doFollow(m, false)
+      end
+    else
+      setSt("Siguiendo a " .. (m:getName() or "?"), "#66ccff")
+    end
   end)
 end
 endSection(__sec)
