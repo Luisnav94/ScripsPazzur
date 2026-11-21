@@ -1,9 +1,20 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 31)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 33)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v33
+--   - War Chase "CON PISOS": ahora distingue GRADAS (se suben pisando:
+--     camina al sqm) de ESCALERAS/AGUJEROS (se usan) y ROPE (usa cuerda).
+--     Antes intentaba "usar" las gradas y por eso no subia.
+--
+--  CAMBIOS v32
+--   - Rendimiento al loguear: los 26 macros ya no arrancan todos de
+--     golpe. Ahora se reparten en el tiempo y esperan 1.5 s tras
+--     loguear, para que no se trabe el cliente ni suba el ping al
+--     encender el bot o entrar.
 --
 --  CAMBIOS v31
 --   - War Chase (PvP): ahora tiene 3 modos en un boton (NORMAL -> CON
@@ -369,6 +380,52 @@ end
 --    porque el servidor lo quitaria.
 --  - Detecta cambios manuales (tu hotkey) y los respeta un tiempo.
 -- ---------------------------------------------------------------------
+-- ---------------------------------------------------------------------
+-- ARRANQUE ESCALONADO DE MACROS
+--  Al loguear o encender el bot, los 26 macros se disparaban TODOS en el
+--  mismo instante y saturaban el cliente (tiron de 3-4 s, sube el ping).
+--  Este envoltorio hace que cada macro:
+--   1) espere un pequeno retraso distinto en su PRIMER disparo (se
+--      reparten en ~2.5 s en vez de todos de golpe), y
+--   2) salte su trabajo durante los primeros 1.5 s tras loguear, para
+--      que el cliente termine de cargar el mapa y las criaturas antes.
+-- ---------------------------------------------------------------------
+do
+  local realMacro = macro
+  -- reloj fiable (ms): usa g_clock del cliente; si no, la global now
+  local function clock()
+    local ok, v = pcall(function() return g_clock.millis() end)
+    if ok and type(v) == "number" then return v end
+    if type(now) == "number" then return now end
+    return 0
+  end
+  local bootAt = clock()
+  local nextDelay = 0
+  -- reiniciar el periodo de calma en cada (re)login
+  pcall(function()
+    if onGameStart then onGameStart(function() bootAt = clock() end) end
+  end)
+  macro = function(interval, a, b)
+    local name, fn
+    if type(a) == "function" then fn = a else name, fn = a, b end
+    nextDelay = nextDelay + 40          -- cada macro arranca 40 ms despues
+    local myDelay = nextDelay
+    local started = false
+    local function wrapped(...)
+      local t = clock()
+      -- calma inicial (1.2 s) + arranque escalonado propio de este macro,
+      -- ambos contados desde el ultimo login (bootAt)
+      if not started then
+        if t - bootAt < 800 + myDelay then return end
+        started = true
+      end
+      return fn(...)
+    end
+    if name ~= nil then return realMacro(interval, name, wrapped) end
+    return realMacro(interval, wrapped)
+  end
+end
+
 local Shared = {
   lastSelfPotion = -1000000,
   lastSelfHeal   = -1000000,   -- ultimo hechizo de curacion propio
@@ -4371,17 +4428,32 @@ do
   end
 
   -- seguir al objetivo cuando cambia de piso desde "last"
-  local function followFloor(me, last)
-    if now - lastFloor < 700 then return end
-    local tile
-    pcall(function() tile = g_map.getTile(last) end)
-    if not tile then return end
+  -- seguir al objetivo cuando cambia de piso desde "last"
+  --  * GRADA (se sube pisando): solo caminar al sqm, el servidor sube solo.
+  --  * ESCALERA / AGUJERO (se usa): usar el objeto del sqm.
+  --  * ROPE spot: usar la cuerda sobre el sqm.
+  local function floorKind(last, me)
+    -- hacia abajo: el sqm de abajo tiene elevacion (grada baja / agujero)
+    local dnTile, upTile
+    pcall(function() dnTile = g_map.getTile({x=last.x, y=last.y, z=me.z+1}) end)
+    pcall(function() upTile = g_map.getTile({x=last.x, y=last.y, z=me.z-1}) end)
+    local downElev = false
+    pcall(function() downElev = dnTile and dnTile:hasElevation(2) end)
+    local upWalk = false
+    pcall(function() upWalk = upTile and upTile:isWalkable() end)
+    if downElev then return "down" end
+    if upWalk then return "up" end
+    return nil
+  end
 
-    -- debe estar junto a ti (si no, primero hay que acercarse)
+  local function followFloor(me, last)
+    if now - lastFloor < 600 then return end
+
+    -- acercarse si no estas pegado
     local d = math.max(math.abs(me.x - last.x), math.abs(me.y - last.y))
     if d > 1 then stepTo(me, last); return end
 
-    -- proteccion: no bajar/subir si hay 2+ PKs en el piso destino
+    -- proteccion anti-trampa
     if wc.safePk then
       if pksNear(last, me.z - 1) >= 2 or pksNear(last, me.z + 1) >= 2 then
         UIx.setLabel(cUI.status, "No sigo: 2+ PKs al cambiar de piso", "#ffaa44")
@@ -4389,30 +4461,58 @@ do
       end
     end
 
+    local tile
+    pcall(function() tile = g_map.getTile(last) end)
     local thing
-    pcall(function() thing = tile:getTopUseThing() end)
+    if tile then pcall(function() thing = tile:getTopUseThing() end) end
 
-    -- rope spot: usar cuerda (id 3003)
-    local okr, isRope = pcall(function() return thing and thing:isTranslucent() end)
-    -- escaleras / rampas / agujeros: usar el objeto del sqm
-    if thing then
-      local used = false
-      -- intentar usar una cuerda si el sqm es de rope
-      local rope = findItem(3003)
-      if rope then
-        pcall(function() useWith(rope, thing) end)
-        used = true
-      end
-      -- caminar/usar la escalera o agujero
+    -- 1) ROPE spot: hay un rope spot si el objeto es un "hole" de cuerda.
+    --    Probar la cuerda (id 3003) sobre el sqm; si no es rope, no pasa nada.
+    local rope = findItem(3003)
+    local isRopeSpot = false
+    if tile then
+      pcall(function()
+        -- rope spots suelen tener ground que pide cuerda; lo intentamos solo
+        -- si el sqm NO es caminable (no es una grada normal)
+        isRopeSpot = not tile:isWalkable()
+      end)
+    end
+
+    -- 2) Decidir el tipo de cambio de piso
+    local kind = floorKind(last, me)
+
+    -- GRADA (subes/bajas pisando): caminar al sqm
+    if kind == "up" or kind == "down" then
       pcall(function()
         if walk then walk(last) else g_game.walk(last, false) end
       end)
-      pcall(function() g_game.use(thing) end)
       lastFloor = now
-      UIx.setLabel(cUI.status, "Siguiendo al cambiar de piso...", "#66ccff")
+      UIx.setLabel(cUI.status, "Siguiendo (grada " .. kind .. ")...", "#66ccff")
+      return
     end
+
+    -- ESCALERA / AGUJERO (se usa): usar el objeto
+    if thing then
+      local okUse = pcall(function() g_game.use(thing) end)
+      -- si parecia rope spot y hay cuerda, intentar la cuerda tambien
+      if rope and isRopeSpot then
+        pcall(function() useWith(rope, thing) end)
+      end
+      if okUse then
+        lastFloor = now
+        UIx.setLabel(cUI.status, "Siguiendo (escalera/agujero)...", "#66ccff")
+        return
+      end
+    end
+
+    -- ultimo recurso: caminar al sqm
+    pcall(function()
+      if walk then walk(last) else g_game.walk(last, false) end
+    end)
+    lastFloor = now
   end
 
+  local lastTargetPos = nil
   local lastTargetPos = nil
   macro(100, "War Chase PvP (modos)", function()
     if wc.mode == M_STOP then
