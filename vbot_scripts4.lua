@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 39)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 40)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v40
+--   - Follow MC / War Chase: ahora reconoce huecos de pala (alcantarillas),
+--     rope spots y escaleras por su ID (lista del Sabuezo), asi baja
+--     alcantarillas y sube por cuerda. Necesitas pala y cuerda en mochila.
 --
 --  CAMBIOS v39
 --   - Auto Follow MC / War Chase CON PISOS: ahora SI intenta subir
@@ -9980,7 +9985,20 @@ do
       return pcall(function() g_game.useInventoryItemWith(id, thing, 0) end)
     end
 
+    -- IDs (tomados del Sabuezo) para reconocer que accion hacer en el sqm
+    local USE_IDS = {34847,1764,21051,30823,6264,5282,20453,20454,20474,11708,11705,
+      6257,6256,2772,27260,2773,1632,1633,1948,435,6252,6253,5007,4911,1629,1630,
+      5108,5107,5281,1968,5542,31116,31120,30742,31115,31118,5737,5736,5734,5733,
+      31202,31228,31199,31200,33262,30824,5125,5126,5116,5117,8257,8258,8255,8256,
+      5120,30777,30776,23873,23877,31262,31130,31129,6250,6249,5122,30049,7131,7132,7727}
+    local SHOVEL_IDS = {606,593,867,608,3457}
+    local ROPE_IDS = {17238,12202,12935,386,421,21966,14238,3003}
+    local function inList(list, id) for _,v in ipairs(list) do if v==id then return true end end return false end
+    local SHOVEL, ROPE = 3457, 3003
+
     -- usar lo que haya en el sqm de destino y alrededores (1 sqm)
+    -- Reconoce por ID: escaleras/aberturas (USE), huecos de pala (SHOVEL),
+    -- rope spots (ROPE). Si no matchea, prueba usar el objeto igual.
     local function useTransition(dpos, force)
       if not dpos then return false end
       local me = myPos()
@@ -9989,6 +10007,7 @@ do
       if not force and t - lastUseAt < 350 then return false end
       lastUseAt = t
 
+      -- sqm de destino primero, luego alrededores
       local spots = {dpos}
       for dx=-1,1 do for dy=-1,1 do
         table.insert(spots, {x=dpos.x+dx, y=dpos.y+dy, z=dpos.z})
@@ -9999,16 +10018,31 @@ do
           local tile
           pcall(function() tile = g_map.getTile(sp) end)
           if tile then
-            local thing
-            pcall(function() thing = tile:getTopUseThing() end)
-            if thing then
-              -- intentar rope/pala por si el sqm lo pide; si no, usar normal
-              pcall(function() tryTool(ROPE, thing) end)
+            -- juntar todas las cosas del sqm
+            local things = {}
+            pcall(function() local x=tile:getTopUseThing(); if x then table.insert(things,x) end end)
+            pcall(function() local x=tile:getTopThing(); if x then table.insert(things,x) end end)
+            pcall(function() local x=tile:getGround(); if x then table.insert(things,x) end end)
+            pcall(function()
+              for _, it in ipairs(tile:getItems() or {}) do table.insert(things, it) end
+            end)
+            for _, thing in ipairs(things) do
+              local id
+              pcall(function() id = thing:getId() end)
+              if id then
+                if inList(ROPE_IDS, id) then
+                  if tryTool(ROPE, thing) then return true end
+                elseif inList(SHOVEL_IDS, id) then
+                  if tryTool(SHOVEL, thing) then return true end
+                elseif inList(USE_IDS, id) then
+                  if tryUse(thing) then return true end
+                end
+              end
+            end
+            -- respaldo: usar lo que haya (escalera/agujero no listado)
+            for _, thing in ipairs(things) do
               if tryUse(thing) then return true end
             end
-            local ground
-            pcall(function() ground = tile:getGround() end)
-            if ground and tryUse(ground) then return true end
           end
         end
       end
