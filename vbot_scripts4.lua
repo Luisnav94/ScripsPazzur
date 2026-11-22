@@ -1,9 +1,23 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 36)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 38)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v38
+--   - Quitado el "Auto Haste" (utani hur) que no era funcional.
+--   - Ventanas mas anchas y campos (SpinBox de %) mas grandes y
+--     separados, para poder tocarlos y cambiar los numeros sin que se
+--     edite el texto del hechizo. Sin cambiar ninguna funcion.
+--
+--  CAMBIOS v37
+--   - NUEVO motor de follow con pisos (adaptado de un script que si sube
+--     gradas): recuerda la ultima posicion vista y usa escalera/rope/pala/
+--     grada/puerta en ese sqm. No lee mapas de otros pisos.
+--   - "Auto Follow MC" (pestana Tools): sigue a una COLA de nombres; si
+--     matan/pierde a uno, pasa al siguiente. Sube gradas/escaleras.
+--   - War Chase "CON PISOS" ahora usa ese motor para seguir al enemigo.
 --
 --  CAMBIOS v36
 --   - NUEVO "Auto Follow" (pestana Tools): prueba del follow del juego
@@ -255,10 +269,9 @@
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
 --  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
 --  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
---  12. TOOLS - Auto Haste (reemplaza al haste de Conditions)
 --  13. TOOLS - Exiva en el minimapa
 --  14. TOOLS - Exani Hur (levitar arriba / abajo)
---  15. TOOLS - Auto Follow (prueba del follow, para MC)
+--  15. TOOLS - Auto Follow MC (cola de nombres, sube gradas/escaleras)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -1130,7 +1143,7 @@ ExerciseDummyRow < Label
 
 ExerciseTrainerWindow < MainWindow
   !text: tr('Exercise Trainer')
-  size: 360 540
+  size: 420 540
   @onEscape: self:hide()
 
   VbTitle
@@ -2431,7 +2444,7 @@ do
 
   g_ui.loadUIFromString([[
 WarHealerSpellRow < Panel
-  height: 24
+  height: 26
 
   Label
     id: num
@@ -2443,15 +2456,15 @@ WarHealerSpellRow < Panel
     id: words
     anchors.left: num.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 118
-    height: 20
+    width: 120
+    height: 22
     !tooltip: tr('Palabras del hechizo (vacio = apagado)')
 
   Label
     id: lblHp
     anchors.left: words.right
     anchors.verticalCenter: parent.verticalCenter
-    margin-left: 6
+    margin-left: 8
     width: 34
     text: HP<=
 
@@ -2459,7 +2472,9 @@ WarHealerSpellRow < Panel
     id: hp
     anchors.left: lblHp.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 42
+    margin-left: 2
+    width: 56
+    height: 22
     minimum: 0
     maximum: 100
 
@@ -2467,7 +2482,7 @@ WarHealerSpellRow < Panel
     id: lblCd
     anchors.left: hp.right
     anchors.verticalCenter: parent.verticalCenter
-    margin-left: 6
+    margin-left: 8
     width: 22
     text: CD
 
@@ -2475,7 +2490,9 @@ WarHealerSpellRow < Panel
     id: cd
     anchors.left: lblCd.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 48
+    margin-left: 2
+    width: 56
+    height: 22
     minimum: 0
     maximum: 3600
     !tooltip: tr('Cooldown del hechizo en segundos')
@@ -2484,7 +2501,7 @@ WarHealerSpellRow < Panel
     id: lblMp
     anchors.left: cd.right
     anchors.verticalCenter: parent.verticalCenter
-    margin-left: 6
+    margin-left: 8
     width: 32
     text: MP>=
 
@@ -2492,11 +2509,11 @@ WarHealerSpellRow < Panel
     id: mana
     anchors.left: lblMp.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 58
+    margin-left: 2
+    width: 56
+    height: 22
     minimum: 0
-    maximum: 50000
-    step: 10
-    !tooltip: tr('Mana minima para tirarlo (0 = no revisar)')
+    maximum: 100
 
 WarHealerPotionRow < Panel
   height: 36
@@ -2553,7 +2570,7 @@ WarHealerWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
-    height: 78
+    height: 90
     layout:
       type: verticalBox
       spacing: 3
@@ -2976,7 +2993,7 @@ do
   g_ui.loadUIFromString([[
 RingAmuletV2Window < MainWindow
   !text: tr('Anillo y Amuleto')
-  size: 340 584
+  size: 400 584
   @onEscape: self:hide()
 
   VbTitle
@@ -4095,7 +4112,7 @@ do
   g_ui.loadUIFromString([[
 UtitoWindow < MainWindow
   !text: tr('Buff de ataque')
-  size: 340 440
+  size: 400 440
   @onEscape: self:hide()
 
   VbTitle
@@ -4453,18 +4470,21 @@ do
     if me.z == tp.z then
       -- mismo piso: atacar con chase (melee) y quitar cualquier follow
       sameFloorAt = now
-      if following then cancelFollow(); following=false end
+      if following then cancelFollow(); following=false
+        if Shared.followTarget == t then Shared.followTarget = nil end
+      end
       setChase(Prof.isMelee() and CHASE or STAND)
       UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode])
     else
       -- objetivo en OTRO piso
-      if wc.mode == M_FLOORS then
-        -- toque de follow: el juego te lleva por la grada/escalera
-        if followOf() ~= t then doFollow(t) end
+      if wc.mode == M_FLOORS and Shared.FollowEngine then
+        -- usar el motor de follow con pisos (gradas/escaleras/rope/puertas)
+        Shared.followTarget = t
+        Shared.FollowEngine.onMove(t, nil, t:getPosition())
+        local r = Shared.FollowEngine.chase(t)
         following = true
-        UIx.setLabel(cUI.status, "Siguiendo por piso (follow)...", "#66ccff")
+        UIx.setLabel(cUI.status, "Siguiendo por piso al enemigo...", "#66ccff")
       else
-        -- modo NORMAL: no perseguir a otro piso
         if following then cancelFollow(); following=false end
       end
     end
@@ -4546,7 +4566,7 @@ do
   g_ui.loadUIFromString([[
 DynamicLureWindow < MainWindow
   !text: tr('Dynamic Lure')
-  size: 360 700
+  size: 420 700
   @onEscape: self:hide()
 
   VbTitle
@@ -5155,7 +5175,7 @@ ec.boostMana  = ec.boostMana or 100
 g_ui.loadUIFromString([[
 EKSupportWindow < MainWindow
   !text: tr('Party Support')
-  size: 340 430
+  size: 400 430
   @onEscape: self:hide()
 
   VbTitle
@@ -5334,7 +5354,7 @@ EKSupportWindow < MainWindow
 
 EKMoreWindow < MainWindow
   !text: tr('Party Support - Hechizos y boost')
-  size: 340 430
+  size: 400 430
   @onEscape: self:hide()
 
   CheckBox
@@ -5894,7 +5914,7 @@ if ap.onlyPlayers == nil then ap.onlyPlayers = false end
 g_ui.loadUIFromString([[
 SafeAntiPushDragWindow < MainWindow
   !text: tr('Anti-Push Seguro')
-  size: 340 580
+  size: 400 580
   @onEscape: self:hide()
 
   VbTitle
@@ -6908,7 +6928,7 @@ do
   g_ui.loadUIFromString([[
 PzAutoCastWindow < MainWindow
   !text: tr('Auto Cast + Auto Unban')
-  size: 340 400
+  size: 400 400
   @onEscape: self:hide()
 
   VbTitle
@@ -7138,7 +7158,7 @@ do
   g_ui.loadUIFromString([[
 PzAutoBankWindow < MainWindow
   !text: tr('Auto Bank')
-  size: 340 290
+  size: 400 290
   @onEscape: self:hide()
 
   VbTitle
@@ -7301,7 +7321,7 @@ do
   g_ui.loadUIFromString([[
 PzAutoStaminaWindow < MainWindow
   !text: tr('Auto Stamina')
-  size: 320 270
+  size: 380 270
   @onEscape: self:hide()
 
   VbTitle
@@ -8425,7 +8445,7 @@ do
   g_ui.loadUIFromString([[
 PkAlarmWindow < MainWindow
   !text: tr('Alarma PK')
-  size: 320 340
+  size: 380 340
   @onEscape: self:hide()
 
   Label
@@ -8732,7 +8752,7 @@ do
   g_ui.loadUIFromString([[
 AutoFoodWindow < MainWindow
   !text: tr('Auto Comida')
-  size: 300 330
+  size: 360 330
   @onEscape: self:hide()
 
   VbTitle
@@ -9042,231 +9062,6 @@ AutoFoodWindow < MainWindow
 end
 endSection(__sec)
 
--- =====================================================================
--- 12. TOOLS - AUTO HASTE (reemplaza al haste de "Conditions" de vBot)
---  - Lanza el haste solo cuando NO lo tienes puesto.
---  - Respeta el exhaust de soporte (2 s) junto con "Buff de ataque",
---    asi ya no chocan y no sale "You are exhausted".
---  - Si el servidor dice "exhausted", espera 1 s y reintenta.
---  - No lanza en PZ. Mana minima opcional.
---  IMPORTANTE: apaga el Haste de "Conditions" (pestana HP de vBot).
--- =====================================================================
-__sec = startSection("Tools")
-do
-  local HK = "autoHasteV1"
-  -- trim propio (no es global en vBot: daba "attempt to call global 'trim'")
-  local function trim(t) return (tostring(t or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
-  if type(storage[HK]) ~= "table" then
-    storage[HK] = {enabled = false, words = "utani tempo hur", mana = 0, every = 3}
-  end
-  local hk = storage[HK]
-  if hk.onlyMoving == nil then hk.onlyMoving = true end
-
-  g_ui.loadUIFromString([[
-AutoHasteWindow < MainWindow
-  !text: tr('Auto Haste')
-  size: 290 280
-  @onEscape: self:hide()
-
-  Label
-    id: lWords
-    anchors.top: parent.top
-    anchors.left: parent.left
-    text: Hechizo de haste:
-
-  TextEdit
-    id: words
-    anchors.top: lWords.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    height: 22
-
-  Label
-    id: lMana
-    anchors.top: words.bottom
-    anchors.left: parent.left
-    margin-top: 12
-    width: 180
-    text: Mana minima (0 = sin limite)
-
-  SpinBox
-    id: mana
-    anchors.verticalCenter: lMana.verticalCenter
-    anchors.left: lMana.right
-    width: 65
-    minimum: 0
-    maximum: 99999
-    step: 50
-
-  Label
-    id: lEvery
-    anchors.top: lMana.bottom
-    anchors.left: parent.left
-    margin-top: 12
-    width: 180
-    text: Pausa entre intentos (seg)
-
-  SpinBox
-    id: every
-    anchors.verticalCenter: lEvery.verticalCenter
-    anchors.left: lEvery.right
-    width: 65
-    minimum: 1
-    maximum: 30
-    step: 1
-
-  CheckBox
-    id: onlyMoving
-    anchors.top: lEvery.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 10
-    text: Solo si me estoy moviendo (no estando quieto)
-
-  VbHint
-    id: hint
-    anchors.top: onlyMoving.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-    text: Apaga el Haste de Conditions (pestana HP) para que no choquen.
-
-  VbStatus
-    id: status
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: enableBtn.top
-    margin-bottom: 6
-    text: Inactivo
-
-  Button
-    id: enableBtn
-    anchors.bottom: parent.bottom
-    anchors.left: parent.left
-    width: 90
-    text: Activar
-
-  Button
-    id: closeBtn
-    anchors.bottom: parent.bottom
-    anchors.right: parent.right
-    width: 70
-    text: Cerrar
-]])
-
-  UIx.header("AUTO HASTE")
-  local hUI = UIx.scriptPanel("Auto Haste")
-  local hWin = UI.createWindow('AutoHasteWindow', rootWidget)
-  hWin:hide()
-
-  hWin.words:setText(hk.words or "")
-  hWin.words.onTextChange = function(w, t) hk.words = trim(t) end
-  hWin.mana:setValue(hk.mana or 0)
-  hWin.mana.onValueChange = function(w, v) hk.mana = v end
-  hWin.every:setValue(hk.every or 3)
-  hWin.every.onValueChange = function(w, v) hk.every = v end
-  hWin.onlyMoving:setChecked(hk.onlyMoving)
-  hWin.onlyMoving.onCheckChange = function(w, c) hk.onlyMoving = c end
-  hWin.closeBtn.onClick = function() hWin:hide() end
-  hUI.setupBtn.onClick = function() UIx.toggleWindow(hWin) end
-
-  local lastSt = ""
-  local function setSt(t, c)
-    if t == lastSt then return end
-    lastSt = t
-    UIx.setLabel(hUI.status, t, c)
-    UIx.setLabel(hWin.status, t, c)
-  end
-
-  UIx.bindSwitch(hk, hUI.switch, hWin.enableBtn, function(v)
-    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
-  end)
-
-  local function hasted()
-    local ok, r = pcall(function()
-      if hasHaste then return hasHaste() end
-      return player:hasState((PlayerStates and PlayerStates.Haste) or 64)
-    end)
-    return ok and r == true
-  end
-
-  -- PZ: prueba varias formas (algunos servidores no marcan el icono)
-  local function inPzHaste()
-    if Shared.inPz() then return true end
-    local ok, res = pcall(function()
-      local tile = g_map.getTile(player:getPosition())
-      if not tile then return false end
-      if tile.isPz and tile:isPz() then return true end
-      if tile.hasFlag and tile:hasFlag((TileFlags and TileFlags.ProtectionZone) or 1) then return true end
-      return false
-    end)
-    if ok and res then return true end
-    local okb, bits = pcall(function() return player:getStates() end)
-    if okb and type(bits) == "number" then
-      local pz = (PlayerStates and PlayerStates.Pz) or 16384
-      if math.floor(bits / pz) % 2 == 1 then return true end
-    end
-    return false
-  end
-
-  -- Movimiento: cuenta como "moviendose" si cambio de sqm hace poco
-  local MOVE_MS = 1200
-  local lastPos, lastMoveAt = nil, -1000000
-  local function trackMove()
-    local p = player:getPosition()
-    if not p then return end
-    if not lastPos or p.x ~= lastPos.x or p.y ~= lastPos.y or p.z ~= lastPos.z then
-      lastMoveAt = now
-    end
-    lastPos = {x = p.x, y = p.y, z = p.z}
-    local okw, walking = pcall(function() return player:isWalking() end)
-    if okw and walking then lastMoveAt = now end
-  end
-
-  local lastTry = -1000000
-  local function retryIn(ms)
-    lastTry = now - (hk.every or 3) * 1000 + ms
-  end
-
-  onTextMessage(function(mode, text)
-    local t = (text or ""):lower()
-    if t:find("exhausted", 1, true) and now - lastTry < 1200 then
-      retryIn(1000)
-      Shared.supportBlock = now + 1000
-    end
-  end)
-
-  macro(200, function()
-    if not hk.enabled or not g_game.isOnline() then return end
-    local words = trim(hk.words or "")
-    if words == "" then setSt("Escribe el hechizo", "#ffaa44"); return end
-    trackMove()
-    if inPzHaste() then setSt("En PZ: no lanza", "#aaaaaa"); return end
-    if hasted() then setSt("Con haste", "#66ff66"); return end
-    if hk.onlyMoving and now - lastMoveAt > MOVE_MS then
-      setSt("Quieto: no lanza", "#aaaaaa")
-      return
-    end
-
-    -- Pausa minima entre intentos (por si el servidor no marca el haste)
-    if now - lastTry < (hk.every or 3) * 1000 then return end
-    if (hk.mana or 0) > 0 and mana() < hk.mana then
-      setSt("Esperando mana (" .. hk.mana .. ")", "#ffcc66")
-      return
-    end
-    if not Shared.supportReady() then
-      setSt("Esperando exhaust de soporte", "#aaaaaa")
-      return
-    end
-
-    say(words)
-    lastTry = now
-    Shared.lastSupport = now
-    setSt("Lanzando " .. words, "#88ff88")
-  end)
-end
-endSection(__sec)
 
 -- =====================================================================
 -- 13. TOOLS - EXIVA EN EL MINIMAPA
@@ -9292,7 +9087,7 @@ do
   g_ui.loadUIFromString([[
 ExivaMapWindow < MainWindow
   !text: tr('Exiva en el minimapa')
-  size: 310 360
+  size: 370 360
   @onEscape: self:hide()
 
   Label
@@ -9832,7 +9627,7 @@ do
   g_ui.loadUIFromString([[
 ExaniHurWindow < MainWindow
   !text: tr('Exani Hur')
-  size: 300 270
+  size: 360 270
   @onEscape: self:hide()
 
   Button
@@ -10111,60 +9906,269 @@ end
 endSection(__sec)
 
 -- =====================================================================
--- 15. TOOLS - AUTO FOLLOW (prueba del follow, para MC)
---  Sigue a un compañero con el FOLLOW del juego (el mismo del clic
---  derecho). Sirve para probar si el follow sube/baja gradas y
---  escaleras en tu servidor. Si funciona, lo acoplamos al War Chase.
---  - Casilla con el nombre del compañero.
---  - Boton "Probar follow ahora" para forzarlo una vez.
---  - Reintenta el follow si se pierde (cada 1 s).
+-- =====================================================================
+-- 15. TOOLS - AUTO FOLLOW MC (sigue por gradas, escaleras, rope, puertas)
+--  Motor de seguimiento por pisos adaptado. Recuerda la ultima posicion
+--  del compañero en tu piso; al cambiar de nivel camina ahi y USA lo que
+--  haya (escalera, rope, pala, grada, puerta). No lee mapas de otros
+--  pisos (ligero).
+--  - Cola de nombres: sigue al primero disponible; si lo matan/pierde,
+--    pasa al siguiente.
+--  - Lo usa tambien el War Chase (modo CON PISOS) para el enemigo.
 -- =====================================================================
 __sec = startSection("Tools")
 do
-  local FK = "autoFollowV1"
+  local FK = "autoFollowV2"
   if type(storage[FK]) ~= "table" then
-    storage[FK] = {enabled = false, name = ""}
+    storage[FK] = {enabled = false, names = "", priority = true, pausePk = false}
   end
   local fc = storage[FK]
-  local function trim(t) return (tostring(t or "")):match("^%s*(.-)%s*$") end
-  local function norm(s) return trim(s):lower() end
+  if fc.priority == nil then fc.priority = true end
 
+  local function trim(t) return (tostring(t or "")):match("^%s*(.-)%s*$") end
+  local function low(s) return trim(s):lower() end
+  local function dist(a, b)
+    if not a or not b then return 999 end
+    return math.max(math.abs(a.x-b.x), math.abs(a.y-b.y))
+  end
+  local function key(p) return p and (p.x..":"..p.y..":"..p.z) or "" end
+  local function copyPos(p) return p and {x=p.x, y=p.y, z=p.z} or nil end
+  local function myPos() return pos() end
+  local function myZ() local p=pos(); return p and p.z end
+
+  -- ====== MOTOR DE FOLLOW (compartido con War Chase) ======
+  -- Sigue a UNA criatura (la que se le pase). Guarda posiciones por piso.
+  local FollowEngine = {}
+  do
+    local followPos = {}          -- [z] = ultima pos vista en ese piso
+    local lastPos = nil
+    local lastTransition = nil
+    local lastUseAt, lastWalkAt, lastProgressAt = 0, 0, 0
+    local lastPKey = ""
+    local ROPE, SHOVEL = 3003, 3457
+
+    local function remember(p)
+      if p then local c=copyPos(p); followPos[p.z]=c; lastPos=c end
+    end
+
+    local function following()
+      local c; pcall(function() c = g_game.getFollowingCreature() end); return c
+    end
+    local function doFollow(cr)
+      pcall(function() g_game.follow(cr) end)
+    end
+    local function cancel()
+      if following() then pcall(function() g_game.cancelFollow() end) end
+    end
+
+    local function tryUse(thing)
+      if not thing then return false end
+      local ok = pcall(function() g_game.use(thing) end)
+      return ok
+    end
+    local function tryTool(id, thing)
+      if not id or not thing then return false end
+      local it = findItem(id)
+      if it then return pcall(function() useWith(it, thing) end) end
+      return pcall(function() g_game.useInventoryItemWith(id, thing, 0) end)
+    end
+
+    -- usar lo que haya en el sqm de destino y alrededores (1 sqm)
+    local function useTransition(dpos, force)
+      if not dpos then return false end
+      local me = myPos()
+      if dist(me, dpos) > 2 then return false end
+      local t = now
+      if not force and t - lastUseAt < 350 then return false end
+      lastUseAt = t
+
+      local spots = {dpos}
+      for dx=-1,1 do for dy=-1,1 do
+        table.insert(spots, {x=dpos.x+dx, y=dpos.y+dy, z=dpos.z})
+      end end
+
+      for _, sp in ipairs(spots) do
+        if sp.z == myZ() then
+          local tile
+          pcall(function() tile = g_map.getTile(sp) end)
+          if tile then
+            local thing
+            pcall(function() thing = tile:getTopUseThing() end)
+            if thing then
+              -- intentar rope/pala por si el sqm lo pide; si no, usar normal
+              pcall(function() tryTool(ROPE, thing) end)
+              if tryUse(thing) then return true end
+            end
+            local ground
+            pcall(function() ground = tile:getGround() end)
+            if ground and tryUse(ground) then return true end
+          end
+        end
+      end
+      return false
+    end
+
+    -- dar un paso hacia dpos (1 sqm) sin pathfinder
+    local function stepInto(dpos)
+      local me = myPos()
+      local d = dist(me, dpos)
+      if d ~= 1 then return false end
+      local dx = (dpos.x>me.x) and 1 or (dpos.x<me.x) and -1 or 0
+      local dy = (dpos.y>me.y) and 1 or (dpos.y<me.y) and -1 or 0
+      local dir
+      if dx==0 and dy==-1 then dir=0 elseif dx==1 and dy==0 then dir=1
+      elseif dx==0 and dy==1 then dir=2 elseif dx==-1 and dy==0 then dir=3
+      elseif dx==1 and dy==-1 then dir=4 elseif dx==1 and dy==1 then dir=5
+      elseif dx==-1 and dy==1 then dir=6 elseif dx==-1 and dy==-1 then dir=7 end
+      if dir==nil then return false end
+      lastWalkAt = now
+      return pcall(function() g_game.walk(dir, false) end)
+    end
+
+    -- caminar hacia dpos (mismo piso). Usa CaveBot.walkTo si existe; si no,
+    -- findPath cada 400ms; si no, paso directo.
+    local lastPath = -100000
+    local function walkTo(dpos)
+      if not dpos or dpos.z ~= myZ() then return false end
+      if player:isWalking() and now - lastWalkAt < 500 then return true end
+      if CaveBot and CaveBot.walkTo then
+        local ok, w = pcall(function()
+          return CaveBot.walkTo(dpos, 50, {ignoreNonPathable=true, precision=1, allowUnseen=true})
+        end)
+        if ok and w then lastWalkAt=now; return true end
+      end
+      local me = myPos()
+      if now - lastPath >= 400 then
+        lastPath = now
+        local ok, path = pcall(function()
+          return findPath(me, dpos, 20, {ignoreNonPathable=true, precision=1})
+        end)
+        if ok and path and #path>0 then
+          pcall(function() if walk then walk(path[1]) else g_game.walk(path[1], false) end end)
+          lastWalkAt=now; return true
+        end
+      end
+      -- paso directo
+      local dx=(dpos.x>me.x) and 1 or (dpos.x<me.x) and -1 or 0
+      local dy=(dpos.y>me.y) and 1 or (dpos.y<me.y) and -1 or 0
+      if dx~=0 or dy~=0 then
+        pcall(function() if walk then walk({x=me.x+dx,y=me.y+dy,z=me.z}) end end)
+        lastWalkAt=now
+      end
+      return true
+    end
+
+    -- API publica
+    function FollowEngine.reset()
+      followPos, lastPos, lastTransition = {}, nil, nil
+      cancel()
+    end
+    function FollowEngine.onMove(creature, oldPos, newPos)
+      if oldPos then remember(oldPos) end
+      if newPos then remember(newPos) end
+      if oldPos and newPos and oldPos.z ~= newPos.z then
+        local pz = myZ()
+        if oldPos.z == pz then lastTransition = copyPos(oldPos); followPos[pz]=lastTransition
+        elseif newPos.z == pz then lastTransition = copyPos(newPos); followPos[pz]=lastTransition end
+      end
+    end
+    -- seguir a 'target' (criatura) este tick
+    function FollowEngine.chase(target)
+      local me = myPos()
+      local pk = key(me)
+      if pk ~= "" and pk ~= lastPKey then lastPKey=pk; lastProgressAt=now end
+
+      -- si lo vemos en nuestro piso: follow normal del juego
+      if target then
+        local tp = copyPos(target:getPosition())
+        remember(tp)
+        if tp and tp.z == myZ() then
+          local f = following()
+          if not f or f:getId() ~= target:getId() then doFollow(target) end
+          return "same"
+        end
+      end
+
+      -- no esta en nuestro piso: ir a la ultima pos conocida de este piso y usar
+      local z = myZ()
+      local lp = (z and followPos[z]) or nil
+      if lastTransition and lastTransition.z == z then lp = lastTransition end
+      if not lp and lastPos and lastPos.z == z then lp = lastPos end
+      if not lp then return "lost" end
+
+      local d = dist(me, lp)
+      local walking = walkTo(lp)
+      if d <= 1 and now - lastProgressAt > 300 then
+        if stepInto(lp) then return "floor" end
+      end
+      if not walking and d <= 2 then useTransition(lp) end
+      if d == 0 and now - lastProgressAt > 450 then useTransition(lp, true) end
+      if d <= 1 and now - lastProgressAt > 850 then
+        if not stepInto(lp) then useTransition(lp, true) end
+      end
+      return "floor"
+    end
+    function FollowEngine.stop() cancel() end
+  end
+  Shared.FollowEngine = FollowEngine
+
+  -- evento de movimiento de criaturas (vBot lo provee)
+  pcall(function()
+    if onCreaturePositionChange then
+      onCreaturePositionChange(function(cr, newPos, oldPos)
+        if Shared.followTarget and cr and cr.getId and Shared.followTarget.getId
+           and cr:getId() == Shared.followTarget:getId() then
+          FollowEngine.onMove(cr, oldPos, newPos)
+        end
+      end)
+    end
+  end)
+
+  -- ====== UI del Auto Follow MC ======
   g_ui.loadUIFromString([[
 AutoFollowWindow < MainWindow
-  !text: tr('Auto Follow')
-  size: 300 210
+  !text: tr('Auto Follow MC')
+  size: 380 260
   @onEscape: self:hide()
 
   Label
-    id: lName
+    id: lNames
     anchors.top: parent.top
     anchors.left: parent.left
-    text: Nombre del compañero a seguir:
+    anchors.right: parent.right
+    text: Nombres a seguir (coma, en orden de prioridad):
 
   TextEdit
-    id: name
-    anchors.top: lName.bottom
+    id: names
+    anchors.top: lNames.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
     height: 22
 
-  Button
-    id: testBtn
-    anchors.top: name.bottom
+  CheckBox
+    id: priority
+    anchors.top: names.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 8
-    height: 24
-    text: Probar follow ahora
+    margin-top: 10
+    text: Volver al #1 cuando reaparezca (si no, se queda con el actual)
+
+  CheckBox
+    id: pausePk
+    anchors.top: priority.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Pausar si hay un PK en pantalla
 
   VbHint
     id: hint
-    anchors.top: testBtn.bottom
+    anchors.top: pausePk.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
-    text: Prueba si sube y baja gradas/escaleras. Si funciona, lo unimos al War Chase.
+    text: Sigue por gradas, escaleras, rope, pala y puertas usando la ultima posicion vista. Necesita pala/cuerda en mochila para esos casos.
 
   VbStatus
     id: status
@@ -10189,74 +10193,90 @@ AutoFollowWindow < MainWindow
     text: Cerrar
 ]])
 
-  UIx.header("AUTO FOLLOW")
-  local fUI = UIx.scriptPanel("Auto Follow")
+  UIx.header("AUTO FOLLOW MC")
+  local fUI = UIx.scriptPanel("Auto Follow MC")
   local fWin = UI.createWindow('AutoFollowWindow', rootWidget)
   fWin:hide()
 
-  local lastSt = ""
-  local function setSt(t, c)
-    if t == lastSt then return end
-    lastSt = t
-    UIx.setLabel(fUI.status, t, c)
-    UIx.setLabel(fWin.status, t, c)
+  local lastSt=""
+  local function setSt(t,c)
+    if t==lastSt then return end
+    lastSt=t
+    UIx.setLabel(fUI.status, t, c); UIx.setLabel(fWin.status, t, c)
   end
 
-  fWin.name:setText(fc.name or "")
-  fWin.name.onTextChange = function(w, t) fc.name = trim(t) end
+  fWin.names:setText(fc.names or "")
+  fWin.names.onTextChange = function(w,t) fc.names = t end
+  fWin.priority:setChecked(fc.priority)
+  fWin.priority.onCheckChange = function(w,c) fc.priority=c end
+  fWin.pausePk:setChecked(fc.pausePk)
+  fWin.pausePk.onCheckChange = function(w,c) fc.pausePk=c end
   fWin.closeBtn.onClick = function() fWin:hide() end
   fUI.setupBtn.onClick = function() UIx.toggleWindow(fWin) end
 
-  -- buscar al compañero por nombre en pantalla
-  local function findMate()
-    local target = norm(fc.name)
-    if target == "" then return nil end
-    for _, sp in ipairs(getSpectators()) do
-      if sp:isPlayer() and not sp:isLocalPlayer() then
-        if norm(sp:getName()) == target then return sp end
+  UIx.bindSwitch(fc, fUI.switch, fWin.enableBtn, function(v)
+    if not v then Shared.followTarget=nil; FollowEngine.stop() end
+    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  -- lista de nombres en orden
+  local function nameList()
+    local r={}
+    for n in (fc.names or ""):gmatch("[^,]+") do
+      n=low(n); if n~="" then table.insert(r,n) end
+    end
+    return r
+  end
+  local function creatureByName(nl)
+    -- devuelve la criatura visible de mayor prioridad de la lista
+    for _, want in ipairs(nl) do
+      for _, sp in ipairs(getSpectators()) do
+        if sp:isPlayer() and not sp:isLocalPlayer() and low(sp:getName())==want then
+          return sp, want
+        end
       end
     end
     return nil
   end
 
-  local function followOf()
-    local c; pcall(function() c = g_game.getFollowingCreature() end); return c
-  end
-
-  local function doFollow(cr, manual)
-    pcall(function() g_game.follow(cr) end)
-    setSt("Siguiendo a " .. (cr:getName() or "?"), "#66ccff")
-  end
-
-  fWin.testBtn.onClick = function()
-    local m = findMate()
-    if not m then setSt("No veo a '" .. (fc.name or "") .. "' en pantalla", "#ffaa44") return end
-    doFollow(m, true)
-  end
-
-  UIx.bindSwitch(fc, fUI.switch, fWin.enableBtn, function(v)
-    if not v then pcall(function() if followOf() then g_game.cancelFollow() end end) end
-    setSt(v and "Activo" or "Inactivo", v and "#66ff66" or "#888888")
-  end)
-
-  local lastTry = -1000000
-  macro(300, function()
+  local currentName = nil
+  macro(100, function()
     if not fc.enabled or not g_game.isOnline() then return end
-    if trim(fc.name) == "" then setSt("Escribe un nombre", "#ffaa44") return end
-    local m = findMate()
-    if not m then
-      setSt("Esperando a '" .. fc.name .. "'...", "#ffaa44")
+    local nl = nameList()
+    if #nl == 0 then setSt("Escribe nombres a seguir", "#ffaa44"); return end
+    if fc.pausePk and not Shared.inPz() and #Shared.pkList() > 0 then
+      setSt("Pausa: PK en pantalla", "#ffaa44"); return
+    end
+
+    -- elegir a quien seguir
+    local target
+    if fc.priority or not currentName then
+      target = creatureByName(nl)         -- siempre el de mayor prioridad visible
+    else
+      -- quedarse con el actual si sigue visible
+      for _, sp in ipairs(getSpectators()) do
+        if sp:isPlayer() and low(sp:getName())==currentName then target=sp break end
+      end
+      if not target then target = creatureByName(nl) end
+    end
+
+    if not target then
+      -- nadie visible: intentar seguir por la ultima posicion del actual
+      if Shared.followTarget then
+        FollowEngine.chase(nil)
+        setSt("Buscando a "..(currentName or "?").."...", "#ffaa44")
+      else
+        setSt("Esperando a algun compañero...", "#ffaa44")
+      end
       return
     end
-    -- si no lo estamos siguiendo ya, (re)activar follow
-    if followOf() ~= m then
-      if now - lastTry >= 1000 then
-        lastTry = now
-        doFollow(m, false)
-      end
-    else
-      setSt("Siguiendo a " .. (m:getName() or "?"), "#66ccff")
-    end
+
+    currentName = low(target:getName())
+    Shared.followTarget = target
+    local r = FollowEngine.chase(target)
+    if r=="same" then setSt("Siguiendo a "..target:getName(), "#66ccff")
+    elseif r=="floor" then setSt("Siguiendo por piso a "..target:getName().."...", "#66ccff")
+    else setSt("Perdi a "..target:getName(), "#ffaa44") end
   end)
 end
 endSection(__sec)
