@@ -1,9 +1,16 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 38)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 39)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v39
+--   - Auto Follow MC / War Chase CON PISOS: ahora SI intenta subir
+--     escaleras y gradas. Camina al sqm donde el compañero cambio de piso
+--     con varios metodos (CaveBot.walkTo, autoWalk, player:autoWalk,
+--     findPath) y al llegar pisa la grada o usa la escalera/rope/agujero.
+--     Antes se quedaba quieto si no tenias cavebot cargado.
 --
 --  CAMBIOS v38
 --   - Quitado el "Auto Haste" (utani hur) que no era funcional.
@@ -10025,30 +10032,45 @@ do
       return pcall(function() g_game.walk(dir, false) end)
     end
 
-    -- caminar hacia dpos (mismo piso). Usa CaveBot.walkTo si existe; si no,
-    -- findPath cada 400ms; si no, paso directo.
+    -- caminar hacia dpos (mismo piso). Prueba varios metodos, igual que
+    -- el script Sabuezo, para funcionar con o sin cavebot cargado.
     local lastPath = -100000
-    local function walkTo(dpos)
+    local function walkTo(dpos, precision)
       if not dpos or dpos.z ~= myZ() then return false end
+      precision = precision or 0
       if player:isWalking() and now - lastWalkAt < 500 then return true end
+      -- 1) CaveBot.walkTo (si hay cavebot)
       if CaveBot and CaveBot.walkTo then
         local ok, w = pcall(function()
-          return CaveBot.walkTo(dpos, 50, {ignoreNonPathable=true, precision=1, allowUnseen=true})
+          return CaveBot.walkTo(dpos, 50, {ignoreNonPathable=true, precision=precision,
+            ignoreStairs=false, allowUnseen=true, allowOnlyVisibleTiles=false})
         end)
         if ok and w then lastWalkAt=now; return true end
       end
+      -- 2) autoWalk global (lo usa el Sabuezo)
+      if type(autoWalk) == "function" then
+        local ok = pcall(function()
+          autoWalk(dpos, 50, {ignoreNonPathable=true, precision=precision, ignoreStairs=false})
+        end)
+        if ok then lastWalkAt=now; return true end
+      end
+      -- 3) player:autoWalk (nativo del cliente)
+      if player and player.autoWalk then
+        local ok = pcall(function() player:autoWalk(dpos) end)
+        if ok then lastWalkAt=now; return true end
+      end
+      -- 4) findPath (cada 400ms) + paso directo
       local me = myPos()
       if now - lastPath >= 400 then
         lastPath = now
         local ok, path = pcall(function()
-          return findPath(me, dpos, 20, {ignoreNonPathable=true, precision=1})
+          return findPath(me, dpos, 30, {ignoreNonPathable=true, precision=precision})
         end)
         if ok and path and #path>0 then
           pcall(function() if walk then walk(path[1]) else g_game.walk(path[1], false) end end)
           lastWalkAt=now; return true
         end
       end
-      -- paso directo
       local dx=(dpos.x>me.x) and 1 or (dpos.x<me.x) and -1 or 0
       local dy=(dpos.y>me.y) and 1 or (dpos.y<me.y) and -1 or 0
       if dx~=0 or dy~=0 then
@@ -10097,15 +10119,22 @@ do
       if not lp then return "lost" end
 
       local d = dist(me, lp)
-      local walking = walkTo(lp)
-      if d <= 1 and now - lastProgressAt > 300 then
-        if stepInto(lp) then return "floor" end
+      -- si ya estas sobre o junto al sqm donde subio: USA la escalera/grada YA
+      if d <= 1 then
+        -- grada: pisar (stepInto) ; escalera/rope/agujero: usar
+        if d == 0 then
+          useTransition(lp, true)          -- estas encima: usa lo que haya
+        else
+          -- a 1 sqm: primero intenta pisar (grada), luego usar
+          if not stepInto(lp) then useTransition(lp) end
+          useTransition(lp)                -- por si es escalera adyacente
+        end
+        return "floor"
       end
-      if not walking and d <= 2 then useTransition(lp) end
-      if d == 0 and now - lastProgressAt > 450 then useTransition(lp, true) end
-      if d <= 1 and now - lastProgressAt > 850 then
-        if not stepInto(lp) then useTransition(lp, true) end
-      end
+      -- aun lejos: caminar hacia el sqm de la escalera
+      local walking = walkTo(lp, 0)
+      if not walking then walkTo(lp, 1) end
+      if d <= 2 then useTransition(lp) end
       return "floor"
     end
     function FollowEngine.stop() cancel() end
