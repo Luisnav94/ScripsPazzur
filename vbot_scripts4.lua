@@ -1,9 +1,106 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 40)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 63)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v63
+--   - NUEVO "Rainbow Outfit" (pestana Tools): cambia los colores del
+--     outfit (cabeza, cuerpo, piernas, pies) en modo Arcoiris, Escalonado
+--     o Aleatorio. Intervalo minimo 500 ms (por defecto 1000) para no
+--     saturar al servidor. Espera 1.5 s tras cada cambio de equipo del
+--     EquipCore para no confundir su deteccion de "exhausted". Si el
+--     servidor responde "exhausted" al cambio de outfit, sube solo el
+--     intervalo. Al apagarlo devuelve tus colores originales.
+--
+--  CAMBIOS v62
+--   - Equipo Auto: 3 modos (PK -> PVP -> CAVE), cada uno con su propio set
+--     de Ataque y Defensa. Se acabo cambiar items a mano al cambiar de modo.
+--     PK y CAVE comparten los valores de vida y AMBOS ponen defensa si hay
+--     un PK en pantalla. PVP usa sus propios valores. Quitado el modo WAR.
+--     La ventana principal edita el set PK; el boton "Sets CAVE / PVP" abre
+--     la ventana para editar esos dos (alternar con su boton).
+--
+--  CAMBIOS v61
+--   - Corregido el error "attempt to perform arithmetic on global lastStep":
+--     faltaba declarar lastStep (y wcTarget/lostAt) en el War Chase al
+--     restaurarlo. Ya no salen errores en rojo.
+--
+--  CAMBIOS v60
+--   - War Chase: en el MISMO piso ya NO activa follow (que estorbaba los
+--     golpes). Solo chase + ataque + paso adelante, asi PEGA los hits. El
+--     follow solo se usa para CRUZAR escaleras/gradas al cambiar de piso.
+--
+--  CAMBIOS v59
+--   - War Chase: la gracia tras perder al enemigo bajo de 2.5s a 1.5s,
+--     asi reacciona mas rapido cuando es muerte y no se pone "loquito".
+--
+--  CAMBIOS v58 (sobre el War Chase que seguia por todos lados)
+--   - War Chase: al morir/matar/desaparecer el enemigo, suelta el objetivo
+--     y ya NO regresa solo al ultimo lugar (sirve tambien en arena, donde
+--     no sale mensaje de muerte).
+--   - War Chase: adelanta 1 sqm hacia el enemigo para seguirlo de
+--     inmediato, hacia cualquier direccion. (El seguimiento por pisos no
+--     se toco.)
+--
+--  CAMBIOS v54
+--   - War Chase: al dejar de atacar ya NO sigue moviendote como cavebot.
+--     Ahora limpia bien el objetivo del follow cuando sueltas el ataque,
+--     cambias a STOP o dejas de tener enemigo.
+--
+--  CAMBIOS v53
+--   - Exani Hur: AHORA SI detecta la orilla. Antes el codigo de "orilla"
+--     no se habia aplicado y por eso no bajaba. Orilla/lava -> down,
+--     pared solida -> up. Automatico, con comillas.
+--
+--  CAMBIOS v52 (base restaurada de v47, que seguia bien)
+--   - War Chase CON PISOS unificado con el motor del Auto Follow MC.
+--   - War Chase CON PISOS unificado con el motor del Auto Follow MC: marca
+--     al enemigo desde que atacas y lo sigue por gradas/escaleras igual.
+--
+--  CAMBIOS v47
+--   - Follow MC: tras abrir una puerta vuelve a seguir casi al instante
+--     (antes tardaba 5-8 s).
+--   - Exani Hur: ya no alterna up/down al azar. Prueba primero el lado
+--     correcto ("down" por defecto, configurable). Si sale "not possible"
+--     prueba el otro lado; si sale "exhausted" reintenta el mismo. Asi
+--     baja en los huecos de bajar.
+--
+--  CAMBIOS v46
+--   - Follow MC: reacciona mucho mas rapido al cambiar de piso. Guarda tu
+--     posicion cada 20 ms (antes podia perderla y arrancaba tarde, a 5-10
+--     sqm). El seguimiento corre cada 50 ms en vez de 100.
+--
+--  CAMBIOS v45
+--   - Follow MC: reintenta el seguimiento justo despues de cada cambio de
+--     piso (al bajar/subir), con varios intentos escalonados, igual que el
+--     script Sabuezo. Antes se quedaba quieto tras bajar porque no
+--     reintentaba en el momento justo.
+--
+--  CAMBIOS v44
+--   - Exani Hur auto: si topas con una PUERTA, la ABRE en vez de tirar
+--     exani hur. Solo levita si enfrente hay una pared de verdad (no
+--     puerta). Asi corres y las puertas se abren solas.
+--   - Exani Hur auto: si el cliente no ve el otro piso, igual intenta
+--     levitar (alterna up/down) en vez de quedarse quieto.
+--
+--  CAMBIOS v43
+--   - Follow MC: ahora ABRE PUERTAS (por ID) en el camino y en la
+--     transicion de piso. Baja alcantarillas (ya funcionaba). Mejor
+--     persistencia tras bajar.
+--
+--  CAMBIOS v42
+--   - Boost (exura boost): ya NO se lo tira a cualquiera ni a la friend
+--     list. Solo a los de tu GUILD (emblema) y a los nombres que escribes
+--     a mano en "Amigos por nombre" (ej. el poteador).
+--   - Correccion: la deteccion de guild usaba un emblema que incluia a
+--     jugadores sin relacion; ahora usa solo el emblema de aliado.
+--
+--  CAMBIOS v41
+--   - Follow MC: ahora SI persigue despues de que el compañero sube/baja.
+--     Recuerda la ultima posicion vista aunque este lejos, y al perderlo
+--     camina a esa posicion y usa la escalera/alcantarilla/rope de ahi.
 --
 --  CAMBIOS v40
 --   - Follow MC / War Chase: ahora reconoce huecos de pala (alcantarillas),
@@ -284,6 +381,7 @@
 --  13. TOOLS - Exiva en el minimapa
 --  14. TOOLS - Exani Hur (levitar arriba / abajo)
 --  15. TOOLS - Auto Follow MC (cola de nombres, sube gradas/escaleras)
+--  16. TOOLS - Rainbow Outfit (colores del outfit en arcoiris)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -483,6 +581,7 @@ local Shared = {
   lastSupport    = -1000000,
   supportBlock   = 0,
   supportReserve = 0,   -- Exani Hur "aparta" el turno: los demas esperan
+  lastEquipMove  = -1000000,   -- ultimo movimiento del EquipCore (Rainbow espera)
 }
 local SUPPORT_GAP = 2000
 -- ignoreReserve = true solo lo usa quien hizo la reserva (Exani Hur)
@@ -831,6 +930,7 @@ do
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
       lastAction = now
+      Shared.lastEquipMove = now
 
       local srcCid = containerOf(item)
       if EquipCore.keepBag() and srcCid and cur and prevId > 0
@@ -858,6 +958,7 @@ do
       if ok then
         hotkeyTries[id] = {n = (ht and ht.n or 0) + 1, t = now}
         lastAction = now
+        Shared.lastEquipMove = now
         pending[slot] = {id = id, t = now, prevId = prevId}
         ownMove[slot] = now
         nextTry[slot] = now + HOTKEY_RETRY
@@ -3438,24 +3539,33 @@ do
     }
   end
   local ec = storage[EK]
-  if ec.mode ~= "war" and ec.mode ~= "cave" and ec.mode ~= "pk" and ec.mode ~= "pvp" then
-    ec.mode = "war"
+  -- 3 modos: pk, pvp, cave. Cada uno con su set Ataque y Defensa.
+  if ec.mode ~= "cave" and ec.mode ~= "pk" and ec.mode ~= "pvp" then
+    ec.mode = "pk"
   end
-  ec.war, ec.cave = ec.war or {hp = 71, drop = 15}, ec.cave or {hp = 61, drop = 25}
-  ec.attack, ec.defense = ec.attack or {}, ec.defense or {}
+  ec.attack, ec.defense = ec.attack or {}, ec.defense or {}   -- legado (migracion)
   ec.attackHp, ec.holdSec = ec.attackHp or 91, ec.holdSec or 5
   if ec.openBags == nil then ec.openBags = true end
   ec.manualSec = ec.manualSec or 15
-  -- Modo PVP: sus propios sets y valores (empiezan como copia de los normales)
-  ec.pvp = ec.pvp or {hp = 71, drop = 15}
-  if type(ec.pvpAttack) ~= "table" then
-    ec.pvpAttack = {}
-    for k, v in pairs(ec.attack) do ec.pvpAttack[k] = v end
-  end
-  if type(ec.pvpDefense) ~= "table" then
-    ec.pvpDefense = {}
-    for k, v in pairs(ec.defense) do ec.pvpDefense[k] = v end
-  end
+
+  -- Valores de vida: pkcave (compartido por PK y CAVE) y pvp (propio)
+  ec.pkcave = ec.pkcave or ec.war or {hp = 71, drop = 15}
+  ec.pvp    = ec.pvp or {hp = 71, drop = 15}
+
+  -- Sets por modo. PK y CAVE arrancan copiando los sets viejos; PVP los suyos.
+  local function copyset(src) local t = {} if type(src)=="table" then for k,v in pairs(src) do t[k]=v end end return t end
+  if type(ec.pkAttack)   ~= "table" then ec.pkAttack   = copyset(ec.attack) end
+  if type(ec.pkDefense)  ~= "table" then ec.pkDefense  = copyset(ec.defense) end
+  if type(ec.caveAttack) ~= "table" then ec.caveAttack = copyset(ec.attack) end
+  if type(ec.caveDefense)~= "table" then ec.caveDefense= copyset(ec.defense) end
+  if type(ec.pvpAttack)  ~= "table" then ec.pvpAttack  = copyset(ec.attack) end
+  if type(ec.pvpDefense) ~= "table" then ec.pvpDefense = copyset(ec.defense) end
+
+  -- helpers para elegir los sets y valores segun el modo
+  local function modeAtk()  return ({pk=ec.pkAttack, cave=ec.caveAttack, pvp=ec.pvpAttack})[ec.mode] or ec.pkAttack end
+  local function modeDef()  return ({pk=ec.pkDefense, cave=ec.caveDefense, pvp=ec.pvpDefense})[ec.mode] or ec.pkDefense end
+  local function modeVals() return (ec.mode == "pvp") and ec.pvp or ec.pkcave end
+  local function modeDetectsPk() return ec.mode == "pk" or ec.mode == "cave" end
 
   g_ui.loadUIFromString([[
 EquipColumn < Panel
@@ -3908,56 +4018,81 @@ EquipPvpWindow < MainWindow
   local eWin = UI.createWindow('EquipAutoWindow', rootWidget)
   eWin:hide()
 
+  -- Ventana principal = sets del modo PK
   for _, s in ipairs(SLOTS) do
     local col = UI.createWidget('EquipColumn', eWin.cols)
     col.name:setText(s.name)
-    col.atk:setItemId(ec.attack[s.key] or 0)
-    col.def:setItemId(ec.defense[s.key] or 0)
-    col.atk.onItemChange = function(w) ec.attack[s.key]  = w:getItemId() end
-    col.def.onItemChange = function(w) ec.defense[s.key] = w:getItemId() end
+    col.atk:setItemId(ec.pkAttack[s.key] or 0)
+    col.def:setItemId(ec.pkDefense[s.key] or 0)
+    col.atk.onItemChange = function(w) ec.pkAttack[s.key]  = w:getItemId() end
+    col.def.onItemChange = function(w) ec.pkDefense[s.key] = w:getItemId() end
   end
 
-  eWin.warHp:setValue(ec.war.hp)
-  eWin.warDrop:setValue(ec.war.drop)
-  eWin.caveHp:setValue(ec.cave.hp)
-  eWin.caveDrop:setValue(ec.cave.drop)
+  -- fila WAR ahora controla los valores PK+CAVE (compartidos); fila CAVE se oculta
+  eWin.warHp:setValue(ec.pkcave.hp)
+  eWin.warDrop:setValue(ec.pkcave.drop)
+  eWin.warHp.onValueChange     = function(w, v) ec.pkcave.hp = v end
+  eWin.warDrop.onValueChange   = function(w, v) ec.pkcave.drop = v end
+  pcall(function() eWin.caveHp:setVisible(false); eWin.caveDrop:setVisible(false) end)
+  pcall(function() eWin.warHp:setValue(ec.pkcave.hp) end)
   eWin.atkHp:setValue(ec.attackHp)
   eWin.hold:setValue(ec.holdSec)
   eWin.manualSec:setValue(ec.manualSec)
-  eWin.warHp.onValueChange     = function(w, v) ec.war.hp = v end
-  eWin.warDrop.onValueChange   = function(w, v) ec.war.drop = v end
-  eWin.caveHp.onValueChange    = function(w, v) ec.cave.hp = v end
-  eWin.caveDrop.onValueChange  = function(w, v) ec.cave.drop = v end
   eWin.atkHp.onValueChange     = function(w, v) ec.attackHp = v end
   eWin.hold.onValueChange      = function(w, v) ec.holdSec = v end
   eWin.manualSec.onValueChange = function(w, v) ec.manualSec = v end
-  -- ----- Ventana Sets PvP -----
+  -- etiquetas: aclarar que la fila de valores es PK+CAVE
+  pcall(function() eWin.lblWar:setText("PK y CAVE  HP% <=") end)
+  -- ----- Ventana "Sets de otro modo" (edita CAVE o PVP) -----
   local pWin = UI.createWindow('EquipPvpWindow', rootWidget)
   pWin:hide()
   local pvpCols = {}
+  local editMode = "cave"   -- cual modo se esta editando en esta ventana
+  local function setsOf(mode)
+    if mode == "pvp" then return ec.pvpAttack, ec.pvpDefense, ec.pvp end
+    return ec.caveAttack, ec.caveDefense, ec.pvp   -- cave no usa valores aqui
+  end
   for _, s in ipairs(SLOTS) do
     local col = UI.createWidget('EquipColumn', pWin.cols)
     col.name:setText(s.name)
-    col.atk:setItemId(ec.pvpAttack[s.key] or 0)
-    col.def:setItemId(ec.pvpDefense[s.key] or 0)
-    col.atk.onItemChange = function(w) ec.pvpAttack[s.key]  = w:getItemId() end
-    col.def.onItemChange = function(w) ec.pvpDefense[s.key] = w:getItemId() end
+    col.atk.onItemChange = function(w)
+      local a = (editMode=="pvp") and ec.pvpAttack or ec.caveAttack
+      a[s.key] = w:getItemId()
+    end
+    col.def.onItemChange = function(w)
+      local d = (editMode=="pvp") and ec.pvpDefense or ec.caveDefense
+      d[s.key] = w:getItemId()
+    end
     pvpCols[s.key] = col
   end
-  pWin.pvpHp:setValue(ec.pvp.hp)
-  pWin.pvpDrop:setValue(ec.pvp.drop)
-  pWin.pvpHp.onValueChange   = function(w, v) ec.pvp.hp = v end
-  pWin.pvpDrop.onValueChange = function(w, v) ec.pvp.drop = v end
-  pWin.copyBtn.onClick = function()
+  local function refreshSets()
+    local a = (editMode=="pvp") and ec.pvpAttack or ec.caveAttack
+    local d = (editMode=="pvp") and ec.pvpDefense or ec.caveDefense
     for _, s in ipairs(SLOTS) do
-      ec.pvpAttack[s.key]  = ec.attack[s.key] or 0
-      ec.pvpDefense[s.key] = ec.defense[s.key] or 0
-      pvpCols[s.key].atk:setItemId(ec.pvpAttack[s.key])
-      pvpCols[s.key].def:setItemId(ec.pvpDefense[s.key])
+      pvpCols[s.key].atk:setItemId(a[s.key] or 0)
+      pvpCols[s.key].def:setItemId(d[s.key] or 0)
+    end
+    -- titulo y valores (solo PVP tiene valores propios aqui)
+    pcall(function() pWin:setText("Equipo Auto - Sets " .. editMode:upper()) end)
+    if editMode == "pvp" then
+      pcall(function() pWin.pvpHp:setVisible(true); pWin.pvpDrop:setVisible(true) end)
+      pWin.pvpHp:setValue(ec.pvp.hp); pWin.pvpDrop:setValue(ec.pvp.drop)
+    else
+      pcall(function() pWin.pvpHp:setVisible(false); pWin.pvpDrop:setVisible(false) end)
     end
   end
+  pWin.pvpHp.onValueChange   = function(w, v) if editMode=="pvp" then ec.pvp.hp = v end end
+  pWin.pvpDrop.onValueChange = function(w, v) if editMode=="pvp" then ec.pvp.drop = v end end
+  -- el boton "copiar" ahora alterna entre editar CAVE y PVP
+  pWin.copyBtn:setText("Editando: CAVE (tocar para PVP)")
+  pWin.copyBtn.onClick = function()
+    editMode = (editMode=="cave") and "pvp" or "cave"
+    pWin.copyBtn:setText("Editando: " .. editMode:upper() .. " (tocar para cambiar)")
+    refreshSets()
+  end
   pWin.closeBtn.onClick = function() pWin:hide() end
-  eWin.pvpBtn.onClick = function() UIx.toggleWindow(pWin) end
+  eWin.pvpBtn:setText("Sets CAVE / PVP")
+  eWin.pvpBtn.onClick = function() refreshSets(); UIx.toggleWindow(pWin) end
 
   eWin.openBags:setChecked(ec.openBags)
   eWin.openBags.onCheckChange = function(w, c) ec.openBags = c end
@@ -3968,9 +4103,9 @@ EquipPvpWindow < MainWindow
     eUI.modeBtn:setText(txt)
     eWin.modeBtn:setText(txt)
   end
-  local NEXT_MODE = {war = "cave", cave = "pk", pk = "pvp", pvp = "war"}
+  local NEXT_MODE = {pk = "pvp", pvp = "cave", cave = "pk"}
   local function toggleMode()
-    ec.mode = NEXT_MODE[ec.mode] or "war"
+    ec.mode = NEXT_MODE[ec.mode] or "pk"
     updateMode()
   end
   updateMode()
@@ -4033,12 +4168,12 @@ EquipPvpWindow < MainWindow
     if not ec.enabled or not g_game.isOnline() then return end
     local hp = hppercent()
     if not hp then return end
-    -- El modo PK usa los valores de HP / caida de WAR.
-    -- El modo PVP usa sus propios valores y sus propios sets.
-    local m = ec[ec.mode] or ec.war
-    local isPvp = ec.mode == "pvp"
-    local atkSet = isPvp and ec.pvpAttack or ec.attack
-    local defSet = isPvp and ec.pvpDefense or ec.defense
+    -- Cada modo con su set y sus valores. PK y CAVE comparten valores y
+    -- ambos detectan PK en pantalla. PVP usa los suyos.
+    local m = modeVals()
+    local atkSet = modeAtk()
+    local defSet = modeDef()
+    local mTxt = ec.mode:upper()
 
     local manualDef = false
     for _, key in ipairs(ORDER) do
@@ -4054,7 +4189,7 @@ EquipPvpWindow < MainWindow
     end
 
     local pk = nil
-    if ec.mode == "pk" and not Shared.inPz() then
+    if modeDetectsPk() and not Shared.inPz() then
       pk = Shared.pkList()[1]
     end
 
@@ -4065,7 +4200,7 @@ EquipPvpWindow < MainWindow
     end
 
     if inDefense then
-      local dTxt = isPvp and "DEFENSA PvP" or "DEFENSA"
+      local dTxt = "DEFENSA " .. mTxt
       setStatus(pk and (dTxt .. " (PK: " .. (pk:getName() or "?") .. ")") or dTxt, "#ff8866")
       equip(defSet, true)
       if now < defenseUntil or hp < ec.attackHp then return end
@@ -4073,7 +4208,7 @@ EquipPvpWindow < MainWindow
     end
 
     if hp >= ec.attackHp then
-      setStatus(isPvp and "ATAQUE PvP" or "ATAQUE", "#66ff66")
+      setStatus("ATAQUE " .. mTxt, "#66ff66")
       equip(atkSet, false)
     end
   end
@@ -4430,6 +4565,8 @@ do
 
   local CHASE, STAND = 1, 0
   local active, prevMode = false, nil
+  local lastStep, lastFloor = -1000000, -1000000
+  local wcTarget, lostAt = nil, 0
 
   UIx.header("WAR CHASE PvP")
   local cUI = UIx.scriptPanel("War Chase")
@@ -4463,41 +4600,83 @@ do
   macro(150, "War Chase PvP (modos)", function()
     if wc.mode == M_STOP then
       if active then active = false; setChase(prevMode or STAND); cancelFollow(); following=false end
+      if wcTarget then Shared.followTarget = nil; wcTarget = nil end
       return
     end
 
     local t = g_game.getAttackingCreature()
     if not (t and t:isPlayer()) then
-      if active then active=false; setChase(prevMode or STAND)
-        if following then cancelFollow(); following=false end
+      -- No hay ataque ahora. Puede ser: (a) cambio de piso (nil por un
+      -- instante) o (b) murio/kill/desaparecio. Damos una gracia corta:
+      -- seguimos yendo a su ultima posicion un ratito; si no reaparece,
+      -- soltamos (asi no regresa al mismo lugar para siempre).
+      if wcTarget then
+        if lostAt == 0 then lostAt = now end
+        if now - lostAt < 1500 and wc.mode == M_FLOORS and Shared.FollowEngine then
+          Shared.FollowEngine.chase(nil)   -- termina de cruzar la escalera
+          UIx.setLabel(cUI.status, "Enemigo fuera de vista...", "#ffaa44")
+          return
+        end
+        -- se acabo la gracia: soltar todo
+        Shared.followTarget = nil; wcTarget = nil
+      end
+      lostAt = 0
+      if active then
+        active=false; setChase(prevMode or STAND)
+        following=false; cancelFollow()
       end
       return
     end
+    lostAt = 0   -- hay enemigo: reiniciar el contador de gracia
 
     if not active then active=true; prevMode=g_game.getChaseMode() end
+
+    -- UNIFICADO con el follow MC: en modo CON PISOS marcamos al enemigo
+    -- como objetivo del motor DESDE YA, para que guarde su posicion cada
+    -- 20 ms (igual que el Auto Follow MC) y lo siga por gradas/escaleras.
+    if wc.mode == M_FLOORS then
+      Shared.followTarget = t
+      wcTarget = t
+    else
+      if wcTarget then Shared.followTarget = nil; wcTarget = nil end
+    end
 
     local me, tp = pos(), t:getPosition()
     if not (me and tp) then return end
 
     if me.z == tp.z then
-      -- mismo piso: atacar con chase (melee) y quitar cualquier follow
+      -- MISMO PISO: solo CHASE + ataque (SIN follow del juego, que estorbaba
+      -- los golpes). Guardamos su posicion para la transicion, pero no
+      -- activamos follow aqui.
       sameFloorAt = now
-      if following then cancelFollow(); following=false
-        if Shared.followTarget == t then Shared.followTarget = nil end
-      end
+      following = false
+      -- quitar cualquier follow activo para que peguen los hits
+      pcall(function() if g_game.getFollowingCreature() then g_game.cancelFollow() end end)
       setChase(Prof.isMelee() and CHASE or STAND)
+      -- recordar su posicion (para cuando cambie de piso) sin hacer follow
+      pcall(function()
+        if Shared.FollowEngine and Shared.FollowEngine.remember then
+          Shared.FollowEngine.remember(tp)
+        end
+      end)
+      -- adelantar 1 sqm hacia el enemigo para seguirlo de inmediato
+      local dd = math.max(math.abs(me.x-tp.x), math.abs(me.y-tp.y))
+      if dd > 1 and not player:isWalking() and now - lastStep >= 150 then
+        lastStep = now
+        local dx=(tp.x>me.x) and 1 or (tp.x<me.x) and -1 or 0
+        local dy=(tp.y>me.y) and 1 or (tp.y<me.y) and -1 or 0
+        pcall(function() if walk then walk({x=me.x+dx, y=me.y+dy, z=me.z}) end end)
+      end
       UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode])
     else
       -- objetivo en OTRO piso
       if wc.mode == M_FLOORS and Shared.FollowEngine then
-        -- usar el motor de follow con pisos (gradas/escaleras/rope/puertas)
-        Shared.followTarget = t
-        Shared.FollowEngine.onMove(t, nil, t:getPosition())
-        local r = Shared.FollowEngine.chase(t)
+        Shared.FollowEngine.chase(t)
         following = true
         UIx.setLabel(cUI.status, "Siguiendo por piso al enemigo...", "#66ccff")
       else
         if following then cancelFollow(); following=false end
+        UIx.setLabel(cUI.status, MODE_TXT[wc.mode], MODE_COL[wc.mode])
       end
     end
   end)
@@ -5651,11 +5830,11 @@ local function isParty(spec)
   return ok2 and type(sh) == "number" and sh >= 3 and sh <= 10
 end
 
--- De mi guild: emblema verde (guild en guerra) o de miembro
-local GUILD_EMBLEMS = {[EmblemGreen or 1] = true, [EmblemMember or 4] = true}
+-- De mi guild: SOLO emblema de aliado de guild (valor 1, como el Sabuezo).
+-- No usar el 4 (ese marca a jugadores sin relacion y metia a todos).
 local function isGuild(spec)
   local ok, em = pcall(function() return spec:getEmblem() end)
-  return ok and GUILD_EMBLEMS[em] == true
+  return ok and em == 1
 end
 
 -- ----- Boost por turnos -----
@@ -5716,10 +5895,13 @@ macro(200, function()
     if spec and spec:isPlayer() and not spec:isLocalPlayer() then
       local name = spec:getName() or ""
       local isPrio = prioNames[name:lower()] == true
-      if isPrio or (ec.helpParty and isParty(spec)) or (ec.helpGuild and isGuild(spec)) then
+      local isAlly = isGuild(spec)
+      if isPrio or (ec.helpParty and isParty(spec)) or (ec.helpGuild and isAlly) then
         local sPos = spec:getPosition()
         local hp = spec:getHealthPercent() or 0
-        if sPos and sPos.z == myPos.z and hp > 0 then
+        -- BOOST: solo a los de tu guild (emblema) y a los nombres que
+        -- escribiste a mano. NUNCA a party sola ni a la friend list.
+        if sPos and sPos.z == myPos.z and hp > 0 and (isAlly or isPrio) then
           table.insert(boostList, name)
         end
         if sPos and sPos.z == myPos.z and hp > 0 then
@@ -9631,7 +9813,7 @@ endSection(__sec)
 __sec = startSection("Tools")
 do
   local LK = "exaniHurV1"
-  local DEF = {enabled = false, minMana = 50}
+  local DEF = {enabled = false, minMana = 50, tryFirst = "down"}
   if type(storage[LK]) ~= "table" then storage[LK] = {} end
   local lc = storage[LK]
   for k, v in pairs(DEF) do if lc[k] == nil then lc[k] = v end end
@@ -9837,12 +10019,19 @@ ExaniHurQuick < Panel
   -- Si sale "exhausted" justo despues de lanzarlo: reintentar 1 vez
   onTextMessage(function(mode, text)
     if not queued or queued.waiting or not queued.sentAt then return end
-    if now - queued.sentAt > 900 then queued = nil; return end
+    if now - queued.sentAt > 1200 then queued = nil; return end
     local t = (text or ""):lower()
     if t:find("exhausted", 1, true) and not queued.retried then
+      -- exhaust: el lado estaba bien, reintentar el MISMO despues
       local w = queued.which
       Shared.supportBlock = now + 1000
+      lastBumpTry = now - 1000   -- permitir reintento pronto
       cast(w, true, true)
+    elseif (t:find("not possible", 1, true) or t:find("not enough room", 1, true)) then
+      -- ese lado NO es: la proxima vez probar el otro
+      lc.tryFirst = (queued.which == "down") and "up" or "down"
+      lastBumpTry = now - 1200   -- reintentar casi de inmediato con el otro
+      queued = nil
     end
   end)
 
@@ -9879,21 +10068,54 @@ ExaniHurQuick < Panel
   -- No se intercepta la funcion de caminar (el keypad/joystick del celular
   -- no siempre pasa por ahi). Un macro revisa: si estas QUIETO, mirando
   -- hacia una pared y tu posicion no cambia, es un choque -> levita.
-  local function wallAhead(dir)
-    if not DV[dir] then return false end
+  -- IDs de puertas (si topas con una, se ABRE en vez de levitar)
+  local DOOR_IDS = {5007,8265,31570,1629,1632,5129,6252,6249,7715,7712,7714,7719,
+    6256,1669,1672,5125,5115,5124,17701,17710,1642,6260,5107,4912,6251,5291,1683,
+    1696,1692,5006,2179,5116,11705,30772,30774,6248,5735,5732,5120,23873,5736,6264,
+    5122,30049,30042,7727,5293,9567,34847,1764,21051,30823,5282,20453,2772,27260,
+    2773,5281,1968,31116,31120,30742,31115,31118,20474,5733,31202,31228,31199,31200,
+    33262,30824,5126,8257,8258,8255,8256,30777,30776,23877,31130,25803,16277,5098,
+    5104,5102,5106,5109,5111,5113,5118,5100,1638,1640,19250,3500,3497,3498,3499,2177,
+    17709,23875,1644,5131,28546,6254,1646,1648,4997,8259,8363,5097,1631,1628,20446,
+    20443,20444,1687,1698}
+  local DOOR_SET = {}
+  for _, id in ipairs(DOOR_IDS) do DOOR_SET[id] = true end
+
+  -- Mira el sqm de enfrente: devuelve "door"+thing, "wall", o nil (libre)
+  -- Mira el sqm de enfrente:
+  --  "door" -> puerta (abrir)
+  --  "edge" -> orilla/borde sin suelo (lava, vacio): aqui se BAJA -> down
+  --  "wall" -> pared solida con suelo: aqui se SUBE -> up
+  --  nil    -> libre o criatura
+  local function ahead(dir)
+    if not DV[dir] then return nil end
     local me = pos()
     local v = DV[dir]
     local tile
     pcall(function() tile = g_map.getTile({x = me.x + v[1], y = me.y + v[2], z = me.z}) end)
-    if not tile then return false end
+
+    -- sin tile o sin suelo enfrente = ORILLA (borde) -> bajar
+    if not tile then return "edge" end
+    local hasGround = false
+    pcall(function() hasGround = (tile:getGround() ~= nil) end)
+    if not hasGround then return "edge" end
+
     local okw, walk = pcall(function() return tile:isWalkable() end)
-    if okw and walk then return false end
+    if okw and walk then return nil end
     local okc, crs = pcall(function() return tile:getCreatures() end)
-    if okc and crs and #crs > 0 then return false end
-    return true
+    if okc and crs and #crs > 0 then return nil end
+
+    local things = {}
+    pcall(function() local x=tile:getTopUseThing(); if x then table.insert(things,x) end end)
+    pcall(function() for _,it in ipairs(tile:getItems() or {}) do table.insert(things,it) end end)
+    for _, thing in ipairs(things) do
+      local id; pcall(function() id = thing:getId() end)
+      if id and DOOR_SET[id] then return "door", thing end
+    end
+    return "wall"    -- bloqueado con suelo = pared -> subir
   end
 
-  local lastPos, lastMove, lastBumpTry = nil, 0, -1000000
+  local lastPos, lastMove, lastBumpTry, lastDoorTry = nil, 0, -1000000, -1000000
   macro(100, function()
     if not lc.enabled or not g_game.isOnline() then return end
     local me = pos()
@@ -9907,12 +10129,22 @@ ExaniHurQuick < Panel
     if now - lastMove < 150 then return end
     local d = facing()
     if not d then return end
-    if now - lastBumpTry < 1200 then return end
-    if not wallAhead(d) then return end
-    local which = decide(d)
-    if not which then return end
+
+    local kind, thing = ahead(d)
+    if kind == "door" then
+      -- PUERTA: abrirla, no levitar
+      if now - lastDoorTry >= 600 then
+        lastDoorTry = now
+        pcall(function() g_game.use(thing) end)
+      end
+      return
+    end
+    if kind ~= "wall" and kind ~= "edge" then return end   -- libre: nada
+    if now - lastBumpTry < 1500 then return end
     lastBumpTry = now
-    levitate(false, d)
+    -- ORILLA/borde (lava, vacio) = bajar ; PARED solida = subir
+    local which = (kind == "edge") and "down" or "up"
+    cast(which, false)
   end)
 end
 endSection(__sec)
@@ -9955,6 +10187,7 @@ do
     local followPos = {}          -- [z] = ultima pos vista en ese piso
     local lastPos = nil
     local lastTransition = nil
+    local prevSeenPos = nil        -- ultima pos vista del target (cualquier piso)
     local lastUseAt, lastWalkAt, lastProgressAt = 0, 0, 0
     local lastPKey = ""
     local ROPE, SHOVEL = 3003, 3457
@@ -9993,6 +10226,15 @@ do
       5120,30777,30776,23873,23877,31262,31130,31129,6250,6249,5122,30049,7131,7132,7727}
     local SHOVEL_IDS = {606,593,867,608,3457}
     local ROPE_IDS = {17238,12202,12935,386,421,21966,14238,3003}
+    local DOOR_IDS = {5007,8265,31570,1629,1632,5129,6252,6249,7715,7712,7714,7719,
+      6256,1669,1672,5125,5115,5124,17701,17710,1642,6260,5107,4912,6251,5291,1683,
+      1696,1692,5006,2179,5116,11705,30772,30774,6248,5735,5732,5120,23873,5736,6264,
+      5122,30049,30042,7727,5293,9567,34847,1764,21051,30823,5282,20453,2772,27260,
+      2773,5281,1968,31116,31120,30742,31115,31118,20474,5733,31202,31228,31199,31200,
+      33262,30824,5126,8257,8258,8255,8256,30777,30776,23877,31130,25803,16277,5098,
+      5104,5102,5106,5109,5111,5113,5118,5100,1638,1640,19250,3500,3497,3498,3499,2177,
+      17709,23875,1644,5131,28546,6254,1646,1648,4997,8259,8363,5097,1631,1628,20446,
+      20443,20444,1687,1698}
     local function inList(list, id) for _,v in ipairs(list) do if v==id then return true end end return false end
     local SHOVEL, ROPE = 3457, 3003
 
@@ -10030,7 +10272,9 @@ do
               local id
               pcall(function() id = thing:getId() end)
               if id then
-                if inList(ROPE_IDS, id) then
+                if inList(DOOR_IDS, id) then
+                  if tryUse(thing) then return true end
+                elseif inList(ROPE_IDS, id) then
                   if tryTool(ROPE, thing) then return true end
                 elseif inList(SHOVEL_IDS, id) then
                   if tryTool(SHOVEL, thing) then return true end
@@ -10114,18 +10358,58 @@ do
       return true
     end
 
+    -- abrir una puerta cerrada en el sqm hacia donde vamos
+    local lastDoorAt = 0
+    local DOOR_COOLDOWN = 200
+    local DOOR_SET = {}
+    for _, id in ipairs(DOOR_IDS) do DOOR_SET[id] = true end
+    local function openDoorToward(dest)
+      if now - lastDoorAt < DOOR_COOLDOWN then return end
+      local me = myPos()
+      if not me or not dest then return end
+      local dx = (dest.x>me.x) and 1 or (dest.x<me.x) and -1 or 0
+      local dy = (dest.y>me.y) and 1 or (dest.y<me.y) and -1 or 0
+      if dx==0 and dy==0 then return end
+      local sp = {x=me.x+dx, y=me.y+dy, z=me.z}
+      local tile
+      pcall(function() tile = g_map.getTile(sp) end)
+      if not tile then return end
+      -- si no se puede caminar ahi y hay una puerta, abrirla
+      local walkable = true
+      pcall(function() walkable = tile:isWalkable() end)
+      if walkable then return end
+      local things = {}
+      pcall(function() local x=tile:getTopUseThing(); if x then table.insert(things,x) end end)
+      pcall(function() for _,it in ipairs(tile:getItems() or {}) do table.insert(things,it) end end)
+      for _, thing in ipairs(things) do
+        local id; pcall(function() id = thing:getId() end)
+        if id and DOOR_SET[id] then
+          pcall(function() g_game.use(thing) end)
+          lastDoorAt = now
+          return
+        end
+      end
+    end
+
     -- API publica
+    function FollowEngine.remember(p) remember(p) end
     function FollowEngine.reset()
       followPos, lastPos, lastTransition = {}, nil, nil
       cancel()
     end
     function FollowEngine.onMove(creature, oldPos, newPos)
+      oldPos = oldPos or prevSeenPos
       if oldPos then remember(oldPos) end
       if newPos then remember(newPos) end
       if oldPos and newPos and oldPos.z ~= newPos.z then
         local pz = myZ()
+        -- guardar en NUESTRO piso el sqm por donde cambio (la escalera/hueco)
         if oldPos.z == pz then lastTransition = copyPos(oldPos); followPos[pz]=lastTransition
-        elseif newPos.z == pz then lastTransition = copyPos(newPos); followPos[pz]=lastTransition end
+        elseif newPos.z == pz then lastTransition = copyPos(newPos); followPos[pz]=lastTransition
+        else
+          -- cambio entre dos pisos que no son el nuestro: usar oldPos como pista
+          lastTransition = copyPos(oldPos); followPos[oldPos.z]=copyPos(oldPos)
+        end
       end
     end
     -- seguir a 'target' (criatura) este tick
@@ -10134,10 +10418,11 @@ do
       local pk = key(me)
       if pk ~= "" and pk ~= lastPKey then lastPKey=pk; lastProgressAt=now end
 
-      -- si lo vemos en nuestro piso: follow normal del juego
+      -- si lo vemos: recordar SIEMPRE su posicion (sirve para la transicion)
       if target then
         local tp = copyPos(target:getPosition())
         remember(tp)
+        prevSeenPos = tp
         if tp and tp.z == myZ() then
           local f = following()
           if not f or f:getId() ~= target:getId() then doFollow(target) end
@@ -10145,10 +10430,12 @@ do
         end
       end
 
-      -- no esta en nuestro piso: ir a la ultima pos conocida de este piso y usar
+      -- no esta en nuestro piso (o no se ve): ir a la ultima pos conocida de
+      -- ESTE piso y usar la escalera/alcantarilla/rope de ahi.
       local z = myZ()
-      local lp = (z and followPos[z]) or nil
+      local lp = nil
       if lastTransition and lastTransition.z == z then lp = lastTransition end
+      if not lp and z and followPos[z] then lp = followPos[z] end
       if not lp and lastPos and lastPos.z == z then lp = lastPos end
       if not lp then return "lost" end
 
@@ -10165,7 +10452,8 @@ do
         end
         return "floor"
       end
-      -- aun lejos: caminar hacia el sqm de la escalera
+      -- aun lejos: abrir puerta en el camino si la hay, y caminar
+      openDoorToward(lp)
       local walking = walkTo(lp, 0)
       if not walking then walkTo(lp, 1) end
       if d <= 2 then useTransition(lp) end
@@ -10182,6 +10470,29 @@ do
         if Shared.followTarget and cr and cr.getId and Shared.followTarget.getId
            and cr:getId() == Shared.followTarget:getId() then
           FollowEngine.onMove(cr, oldPos, newPos)
+          -- reintentar el follow justo tras un cambio de piso (como Sabuezo)
+          if oldPos and newPos and oldPos.z ~= newPos.z and type(schedule) == "function" then
+            local function kick()
+              if Shared.followTarget then FollowEngine.chase(Shared.followTarget) end
+            end
+            schedule(80, kick); schedule(220, kick); schedule(500, kick); schedule(900, kick)
+          end
+        end
+      end)
+    end
+  end)
+  -- cuando TU cambias de piso: cancelar follow viejo y reenganchar
+  pcall(function()
+    if onPlayerPositionChange then
+      onPlayerPositionChange(function(newPos, oldPos)
+        if not oldPos or not newPos or oldPos.z == newPos.z then return end
+        if not Shared.followTarget then return end
+        pcall(function() if g_game.getFollowingCreature() then g_game.cancelFollow() end end)
+        if type(schedule) == "function" then
+          local function kick()
+            if Shared.followTarget then FollowEngine.chase(Shared.followTarget) end
+          end
+          schedule(120, kick); schedule(350, kick); schedule(650, kick)
         end
       end)
     end
@@ -10303,7 +10614,15 @@ AutoFollowWindow < MainWindow
   end
 
   local currentName = nil
-  macro(100, function()
+  -- guardar la pos del target muy seguido para no perderla al cambiar de piso
+  macro(20, function()
+    if not Shared.followTarget then return end
+    pcall(function()
+      local tp = Shared.followTarget:getPosition()
+      if tp and Shared.FollowEngine.remember then Shared.FollowEngine.remember(tp) end
+    end)
+  end)
+  macro(50, function()
     if not fc.enabled or not g_game.isOnline() then return end
     local nl = nameList()
     if #nl == 0 then setSt("Escribe nombres a seguir", "#ffaa44"); return end
@@ -10340,6 +10659,352 @@ AutoFollowWindow < MainWindow
     if r=="same" then setSt("Siguiendo a "..target:getName(), "#66ccff")
     elseif r=="floor" then setSt("Siguiendo por piso a "..target:getName().."...", "#66ccff")
     else setSt("Perdi a "..target:getName(), "#ffaa44") end
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 16. TOOLS - RAINBOW OUTFIT (colores del outfit en arcoiris)
+--  - Cambia los colores de cabeza, cuerpo, piernas y pies (eliges cuales).
+--  - Modos: ARCOIRIS (todas las partes del mismo color, recorriendo los
+--    18 tonos), ESCALONADO (cada parte un tono distinto, efecto degradado)
+--    y ALEATORIO.
+--  - Intensidad 0-6 = fila de la paleta de Tibia (4 = colores mas vivos).
+--  - El cambio de outfit NO comparte exhaust con hechizos, pociones ni
+--    runas. Aun asi:
+--     * intervalo minimo 500 ms (por defecto 1000) para no pasar el
+--       limite de paquetes por segundo del servidor;
+--     * espera 1.5 s despues de cada movimiento del EquipCore, para que
+--       un "exhausted" del outfit no se confunda con un set rechazado;
+--     * si el servidor contesta "exhausted" al cambio de outfit, sube
+--       solo el intervalo (+500 ms, hasta 5 s).
+--  - Al apagarlo devuelve los colores que tenias al encenderlo.
+--  - No toca el tipo de outfit, addons ni montura.
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local RK = "rainbowOutfitV1"
+  local DEF = {
+    enabled = false, interval = 1000, tone = 4, mode = "rainbow",
+    head = true, body = true, legs = true, feet = true,
+    pausePk = false, restore = true, saved = nil,
+  }
+  if type(storage[RK]) ~= "table" then storage[RK] = {} end
+  local rc = storage[RK]
+  for k, v in pairs(DEF) do if rc[k] == nil then rc[k] = v end end
+
+  g_ui.loadUIFromString([[
+RainbowOutfitWindow < MainWindow
+  !text: tr('Rainbow Outfit')
+  size: 360 360
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tParts
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Partes a cambiar
+
+  CheckBox
+    id: head
+    anchors.top: tParts.bottom
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-top: 6
+    text: Cabeza
+
+  CheckBox
+    id: body
+    anchors.top: tParts.bottom
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-top: 6
+    text: Cuerpo
+
+  CheckBox
+    id: legs
+    anchors.top: head.bottom
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-top: 6
+    text: Piernas
+
+  CheckBox
+    id: feet
+    anchors.top: head.bottom
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-top: 6
+    text: Pies
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: legs.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  VbTitle
+    id: tOpts
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Opciones
+
+  Button
+    id: modeBtn
+    anchors.top: tOpts.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    height: 22
+    text: Modo: ARCOIRIS
+
+  Label
+    id: lInt
+    anchors.top: modeBtn.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 200
+    text: Cambiar cada (ms, min 500)
+
+  SpinBox
+    id: interval
+    anchors.verticalCenter: lInt.verticalCenter
+    anchors.left: lInt.right
+    width: 70
+    minimum: 500
+    maximum: 10000
+    step: 100
+
+  Label
+    id: lTone
+    anchors.top: lInt.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 200
+    text: Intensidad (0 palido - 6 oscuro)
+
+  SpinBox
+    id: tone
+    anchors.verticalCenter: lTone.verticalCenter
+    anchors.left: lTone.right
+    width: 70
+    minimum: 0
+    maximum: 6
+
+  CheckBox
+    id: pausePk
+    anchors.top: lTone.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 12
+    text: Pausar si hay PK en pantalla
+
+  CheckBox
+    id: restore
+    anchors.top: pausePk.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Devolver mis colores al apagar
+
+  VbHint
+    id: hint
+    anchors.top: restore.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: El outfit no comparte exhaust con hechizos ni pociones. Si tu servidor responde exhausted, el intervalo se sube solo.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("RAINBOW OUTFIT")
+  local rUI = UIx.scriptPanel("Rainbow Outfit")
+  local rWin = UI.createWindow('RainbowOutfitWindow', rootWidget)
+  rWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(rUI.status, t, c)
+    UIx.setLabel(rWin.status, t, c)
+  end
+
+  -- ----- Paleta de Tibia: 7 filas x 19 columnas (0..132) -----
+  -- Columna 0 = grises; columnas 1..18 = los 18 tonos del arcoiris.
+  local HUES = 18
+  local function colorOf(tone, hue)
+    hue = ((hue - 1) % HUES) + 1          -- 1..18
+    return tone * 19 + hue
+  end
+
+  local MODES = {"rainbow", "steps", "random"}
+  local MODE_TXT = {rainbow = "ARCOIRIS", steps = "ESCALONADO", random = "ALEATORIO"}
+  local PARTS = {"head", "body", "legs", "feet"}
+
+  -- ----- Ventana -----
+  for _, k in ipairs(PARTS) do
+    rWin[k]:setChecked(rc[k] == true)
+    rWin[k].onCheckChange = function(w, v) rc[k] = v end
+  end
+  rWin.pausePk:setChecked(rc.pausePk == true)
+  rWin.pausePk.onCheckChange = function(w, v) rc.pausePk = v end
+  rWin.restore:setChecked(rc.restore == true)
+  rWin.restore.onCheckChange = function(w, v) rc.restore = v end
+
+  local backoff = 0               -- ms extra si el servidor da exhausted
+  rWin.interval:setValue(rc.interval or 1000)
+  rWin.interval.onValueChange = function(w, v) rc.interval = v; backoff = 0 end
+  rWin.tone:setValue(rc.tone or 4)
+  rWin.tone.onValueChange = function(w, v) rc.tone = v end
+
+  local function showMode()
+    rWin.modeBtn:setText("Modo: " .. (MODE_TXT[rc.mode] or "ARCOIRIS"))
+  end
+  rWin.modeBtn.onClick = function()
+    local i = 1
+    for n, m in ipairs(MODES) do if m == rc.mode then i = n end end
+    rc.mode = MODES[(i % #MODES) + 1]
+    showMode()
+  end
+  showMode()
+
+  rWin.closeBtn.onClick = function() rWin:hide() end
+  rUI.setupBtn.onClick = function() UIx.toggleWindow(rWin) end
+
+  -- ----- Outfit -----
+  local function currentOutfit()
+    local ok, o = pcall(function() return player:getOutfit() end)
+    if ok and type(o) == "table" then return o end
+    return nil
+  end
+
+  local lastChange = -1000000
+  local function sendColors(cols)
+    local o = currentOutfit()
+    if not o then return false end
+    local n, same = {}, true
+    for k, v in pairs(o) do n[k] = v end
+    for k, v in pairs(cols) do
+      if n[k] ~= v then same = false end
+      n[k] = v
+    end
+    if same then return true end
+    local ok = pcall(function() g_game.changeOutfit(n) end)
+    if ok then
+      lastChange = now
+      Shared.lastOutfitChange = now
+    end
+    return ok
+  end
+
+  local function saveOriginal()
+    local o = currentOutfit()
+    if o then
+      rc.saved = {head = o.head, body = o.body, legs = o.legs, feet = o.feet}
+    end
+  end
+
+  local function restoreOriginal()
+    if rc.restore and type(rc.saved) == "table" and g_game.isOnline() then
+      sendColors(rc.saved)
+    end
+    rc.saved = nil
+  end
+
+  UIx.bindSwitch(rc, rUI.switch, rWin.enableBtn, function(on)
+    backoff = 0
+    if on then
+      if not rc.saved then saveOriginal() end
+      setSt("Activo", "#66ff66")
+    else
+      if rc.saved then restoreOriginal() end
+      setSt("Inactivo", "#888888")
+    end
+  end)
+
+  -- ----- Si el servidor da exhausted al cambio de outfit -----
+  onTextMessage(function(mode, text)
+    if not rc.enabled then return end
+    local t = (text or ""):lower()
+    if not (t:find("exhaust") or t:find("agotad")) then return end
+    if now - lastChange > 500 then return end
+    -- si justo hubo pocion / hechizo / equipo, el exhaust no es nuestro
+    if now - (Shared.lastSelfPotion or -1000000) < 800 then return end
+    if now - (Shared.lastSupport or -1000000) < 800 then return end
+    if now - (Shared.lastSelfHeal or -1000000) < 800 then return end
+    if now - (Shared.lastEquipMove or -1000000) < 800 then return end
+    if backoff < 4500 then backoff = backoff + 500 end
+    setSt("Servidor da exhausted: cada " .. ((rc.interval or 1000) + backoff) .. " ms", "#ffaa44")
+  end)
+
+  -- ----- Bucle -----
+  local hue, nextAt = 1, 0
+  macro(100, function()
+    if not rc.enabled or not g_game.isOnline() then return end
+    if not rc.saved then saveOriginal() end      -- encendido antes de loguear
+
+    local anyPart = false
+    for _, k in ipairs(PARTS) do if rc[k] then anyPart = true end end
+    if not anyPart then setSt("Marca alguna parte en Config", "#ffaa44"); return end
+
+    if rc.pausePk and not Shared.inPz() and #Shared.pkList() > 0 then
+      setSt("Pausa: PK en pantalla", "#ffaa44"); return
+    end
+    -- no mezclar con un cambio de set en curso (EquipCore)
+    if now - (Shared.lastEquipMove or -1000000) < 1500 then
+      setSt("Esperando cambio de equipo...", "#ffcc66"); return
+    end
+    if now < nextAt then return end
+    nextAt = now + math.max(500, rc.interval or 1000) + backoff
+
+    local tone = math.max(0, math.min(6, rc.tone or 4))
+    local cols, i = {}, 0
+    for _, k in ipairs(PARTS) do
+      if rc[k] then
+        if rc.mode == "random" then
+          cols[k] = colorOf(tone, math.random(1, HUES))
+        elseif rc.mode == "steps" then
+          cols[k] = colorOf(tone, hue + i * 3)
+        else
+          cols[k] = colorOf(tone, hue)
+        end
+        i = i + 1
+      end
+    end
+    hue = (hue % HUES) + 1
+
+    if sendColors(cols) then
+      if backoff == 0 then
+        setSt("Activo (" .. (MODE_TXT[rc.mode] or "") .. ", cada "
+              .. math.max(500, rc.interval or 1000) .. " ms)", "#66ff66")
+      end
+    else
+      setSt("No se pudo cambiar el outfit", "#ff6666")
+    end
   end)
 end
 endSection(__sec)
