@@ -10672,12 +10672,12 @@ endSection(__sec)
 --  - Intensidad 0-6 = fila de la paleta de Tibia (4 = colores mas vivos).
 --  - El cambio de outfit NO comparte exhaust con hechizos, pociones ni
 --    runas. Aun asi:
---     * intervalo minimo 500 ms (por defecto 1000) para no pasar el
+--     * intervalo en SEGUNDOS (minimo 1, por defecto 1) para no pasar el
 --       limite de paquetes por segundo del servidor;
 --     * espera 1.5 s despues de cada movimiento del EquipCore, para que
 --       un "exhausted" del outfit no se confunda con un set rechazado;
---     * si el servidor contesta "exhausted" al cambio de outfit, sube
---       solo el intervalo (+500 ms, hasta 5 s).
+--     * si el servidor contesta "exhausted" o "You have to wait a while"
+--       al cambio de outfit, sube solo el intervalo (+1 s, hasta +9 s).
 --  - Al apagarlo devuelve los colores que tenias al encenderlo.
 --  - No toca el tipo de outfit, addons ni montura.
 -- =====================================================================
@@ -10685,12 +10685,17 @@ __sec = startSection("Tools")
 do
   local RK = "rainbowOutfitV1"
   local DEF = {
-    enabled = false, interval = 1000, tone = 4, mode = "rainbow",
+    enabled = false, seconds = 1, tone = 4, mode = "rainbow",
     head = true, body = true, legs = true, feet = true,
     pausePk = false, restore = true, saved = nil,
   }
   if type(storage[RK]) ~= "table" then storage[RK] = {} end
   local rc = storage[RK]
+  -- de la version en ms a segundos (conserva lo que ya tenias)
+  if rc.seconds == nil and type(rc.interval) == "number" then
+    rc.seconds = math.max(1, math.floor(rc.interval / 1000 + 0.5))
+  end
+  rc.interval = nil
   for k, v in pairs(DEF) do if rc[k] == nil then rc[k] = v end end
 
   g_ui.loadUIFromString([[
@@ -10766,16 +10771,16 @@ RainbowOutfitWindow < MainWindow
     anchors.left: parent.left
     margin-top: 14
     width: 200
-    text: Cambiar cada (ms, min 500)
+    text: Cambiar cada (segundos)
 
   SpinBox
     id: interval
     anchors.verticalCenter: lInt.verticalCenter
     anchors.left: lInt.right
     width: 70
-    minimum: 500
-    maximum: 10000
-    step: 100
+    minimum: 1
+    maximum: 60
+    step: 1
 
   Label
     id: lTone
@@ -10875,9 +10880,15 @@ RainbowOutfitWindow < MainWindow
   rWin.restore:setChecked(rc.restore == true)
   rWin.restore.onCheckChange = function(w, v) rc.restore = v end
 
-  local backoff = 0               -- ms extra si el servidor da exhausted
-  rWin.interval:setValue(rc.interval or 1000)
-  rWin.interval.onValueChange = function(w, v) rc.interval = v; backoff = 0 end
+  local backoff = 0               -- ms extra si el servidor pide esperar
+  local function baseMs() return math.max(1, rc.seconds or 1) * 1000 end
+  local function secTxt(ms)
+    local v = ms / 1000
+    if v == math.floor(v) then return tostring(math.floor(v)) .. " s" end
+    return string.format("%.1f s", v)
+  end
+  rWin.interval:setValue(rc.seconds or 1)
+  rWin.interval.onValueChange = function(w, v) rc.seconds = v; backoff = 0 end
   rWin.tone:setValue(rc.tone or 4)
   rWin.tone.onValueChange = function(w, v) rc.tone = v end
 
@@ -10903,6 +10914,7 @@ RainbowOutfitWindow < MainWindow
   end
 
   local lastChange = -1000000
+  local nextAt = 0
   local function sendColors(cols)
     local o = currentOutfit()
     if not o then return false end
@@ -10950,19 +10962,22 @@ RainbowOutfitWindow < MainWindow
   onTextMessage(function(mode, text)
     if not rc.enabled then return end
     local t = (text or ""):lower()
-    if not (t:find("exhaust") or t:find("agotad")) then return end
-    if now - lastChange > 500 then return end
+    if not (t:find("exhaust") or t:find("agotad")
+            or t:find("wait a while") or t:find("have to wait")
+            or t:find("tienes que esperar") or t:find("debes esperar")) then return end
+    if now - lastChange > 800 then return end
     -- si justo hubo pocion / hechizo / equipo, el exhaust no es nuestro
     if now - (Shared.lastSelfPotion or -1000000) < 800 then return end
     if now - (Shared.lastSupport or -1000000) < 800 then return end
     if now - (Shared.lastSelfHeal or -1000000) < 800 then return end
     if now - (Shared.lastEquipMove or -1000000) < 800 then return end
-    if backoff < 4500 then backoff = backoff + 500 end
-    setSt("Servidor da exhausted: cada " .. ((rc.interval or 1000) + backoff) .. " ms", "#ffaa44")
+    if backoff < 9000 then backoff = backoff + 1000 end
+    nextAt = now + baseMs() + backoff
+    setSt("Servidor pide esperar: cada " .. secTxt(baseMs() + backoff), "#ffaa44")
   end)
 
   -- ----- Bucle -----
-  local hue, nextAt = 1, 0
+  local hue = 1
   macro(100, function()
     if not rc.enabled or not g_game.isOnline() then return end
     if not rc.saved then saveOriginal() end      -- encendido antes de loguear
@@ -10979,7 +10994,7 @@ RainbowOutfitWindow < MainWindow
       setSt("Esperando cambio de equipo...", "#ffcc66"); return
     end
     if now < nextAt then return end
-    nextAt = now + math.max(500, rc.interval or 1000) + backoff
+    nextAt = now + baseMs() + backoff
 
     local tone = math.max(0, math.min(6, rc.tone or 4))
     local cols, i = {}, 0
@@ -11000,7 +11015,7 @@ RainbowOutfitWindow < MainWindow
     if sendColors(cols) then
       if backoff == 0 then
         setSt("Activo (" .. (MODE_TXT[rc.mode] or "") .. ", cada "
-              .. math.max(500, rc.interval or 1000) .. " ms)", "#66ff66")
+              .. secTxt(baseMs()) .. ")", "#66ff66")
       end
     else
       setSt("No se pudo cambiar el outfit", "#ff6666")
