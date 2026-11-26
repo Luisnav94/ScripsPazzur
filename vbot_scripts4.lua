@@ -1,9 +1,18 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 70)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 71)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v71
+--   - Quitado el "Auto Loot" (no funcionaba bien en este OT). Para
+--     lootear usa el Looting del TargetBot de vBot.
+--   - NUEVO "Recoger Todo" (pestana PvP): saca todo de los cuerpos que
+--     ya esten abiertos y recoge items del piso. Con hotkey, boton o
+--     automatico. Nunca toca locker/depot/cofres y no actua en PZ.
+--     Respeta el exhaust de pociones y los cambios de set. Guarda solo
+--     en la mochila elegida (o la principal) y nunca saca de tus mochilas.
 --
 --  CAMBIOS v70
 --   - Auto Loot mas rapido en pelea: lootea al instante los cuerpos
@@ -24,17 +33,6 @@
 --     se mueven los botones; si tu vBot no lo permite, no pasa nada.
 --     Deja una linea en la consola del bot diciendo si pudo o no.
 --
---  CAMBIOS v67
---   - NUEVO "Auto Loot" (pestana Cave, debajo del Dynamic Lure): BP de
---     loot, lista de items como la del Target, "Recoger TODO", monedas,
---     mobs que no se lootean, distancia maxima, esperar mobs, cap minima,
---     pausa con PK y abre la siguiente BP si se llena.
---   - Pestanas reordenadas por uso: Main, HP, Equipo, Cave y PvP (la
---     pestana Tools ya no se usa). La configuracion de cada script no
---     cambia, solo donde aparece.
---   - Ventanas mas cortas: War Healer Pazzur (hechizos en su propia
---     ventana) y Dynamic Lure (Avanzado en su propia ventana).
---
 --  INDICE  (pestana - script)
 --   MAIN   - 0. Profesion | 1. Exercise Trainer | 2. Smart Imbue
 --            9. Pazzur: Auto Cast + Unban, Auto Bank, Auto Stamina
@@ -42,10 +40,10 @@
 --            11. Auto Comida
 --   EQUIPO - 3. Anillo y Amuleto, Equipo Auto | 7. Anti-Push
 --            10. Set Pazzur
---   CAVE   - 4. Buff de ataque, Autosell | 5. Dynamic Lure, Auto Loot
+--   CAVE   - 4. Buff de ataque, Autosell | 5. Dynamic Lure
 --            8. Attack Bot
 --   PVP    - 4. War Chase | 10. Alarma PK | 12. Exiva | 13. Exani Hur
---            14. Auto Follow MC
+--            14. Auto Follow MC | 15. Recoger Todo
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -245,6 +243,8 @@ local Shared = {
   lastSupport    = -1000000,
   supportBlock   = 0,
   supportReserve = 0,   -- Exani Hur "aparta" el turno: los demas esperan
+  lastEquipMove  = -1000000,   -- ultimo movimiento del EquipCore
+  moveWantAt     = -1000000,   -- "Recoger Todo" espera turno para mover
 }
 local SUPPORT_GAP = 2000
 
@@ -395,7 +395,9 @@ do
   -- aguantan la pocion un instante (salvo vida critica) para que el
   -- set entre completo.
   function EquipCore.holdPotion(hp)
-    return now - waitingAt < 250 and (hp or 100) > 35
+    if now - waitingAt < 250 and (hp or 100) > 35 then return true end
+    -- "Recoger Todo" espera turno para mover un item (solo con HP > 60%)
+    return now - (Shared.moveWantAt or -1000000) < 300 and (hp or 100) > 60
   end
   local HOTKEY_RESET = 30000
   local OPEN_DELAY, MAX_OPEN = 700, 10
@@ -607,6 +609,7 @@ do
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
       lastAction = now
+      Shared.lastEquipMove = now
 
       local srcCid = containerOf(item)
       if EquipCore.keepBag() and srcCid and cur and prevId > 0
@@ -634,6 +637,7 @@ do
       if ok then
         hotkeyTries[id] = {n = (ht and ht.n or 0) + 1, t = now}
         lastAction = now
+        Shared.lastEquipMove = now
         pending[slot] = {id = id, t = now, prevId = prevId}
         ownMove[slot] = now
         nextTry[slot] = now + HOTKEY_RETRY
@@ -4389,7 +4393,7 @@ end -- fin: 4. TOOLS
 endSection(__sec)
 
 -- #####################################################################
--- 5. CAVE - Dynamic Lure (con ventana) + Auto Loot
+-- 5. CAVE - Dynamic Lure (con ventana)
 --  - Mientras haya MENOS mobs que "Parar con", el cavebot sigue
 --    caminando despacio (frenadas cortas) para juntar mas (lure).
 --  - Al llegar a "Parar con" mobs alcanzables, frena el cavebot y
@@ -5026,665 +5030,6 @@ DynamicLureAdvWindow < MainWindow
       if cp and not isReachable(me, current, cp, getDist(me, cp)) then
         g_game.cancelAttack()
       end
-    end
-  end)
-end
-
--- ============================================================
--- AUTO LOOT (junto al Dynamic Lure)
---  - Cuando muere un monstruo cerca, abre su cuerpo y mueve a tu BP
---    de loot los items de la lista (igual que la lista del Target).
---  - "Recoger TODO": abre el cuerpo y saca todo lo que tenga.
---  - Monedas siempre (gold, platinum, crystal), opcional.
---  - Mobs que NO se lootean (nombres separados por coma).
---  - Si la BP de loot se llena, abre la siguiente BP igual que este
---    dentro de ella.
---  - Seguridad: distancia maxima al cuerpo, esperar si hay mobs cerca,
---    cap minima, pausa con PK en pantalla.
---  - En pelea solo lootea los cuerpos PEGADOS (1 sqm, sin caminar).
---    Al terminar la pelea camina a los demas, del mas cercano al mas
---    lejano. Si uno no se puede abrir vuelve a la cola (no se pierde).
---  - Mientras abre y saca el loot, frena el CaveBot un momento.
---  IMPORTANTE: apaga el "Looting" del TargetBot de vBot para que no
---  looteen los dos a la vez.
--- ============================================================
-do
-  local AK = "autoLootV1"
-  local COINS = {3031, 3035, 3043}   -- gold, platinum, crystal coin
-  local DEF = {
-    enabled = false, bpId = 0, items = {}, lootAll = false, coins = true,
-    skipNames = "", maxDist = 6, waitMobs = 0, minCap = 0,
-    onlyMine = false, pausePk = true, closeCorpse = true, fightAdjacent = true,
-  }
-  if type(storage[AK]) ~= "table" then storage[AK] = {} end
-  local ac = storage[AK]
-  for k, v in pairs(DEF) do if ac[k] == nil then ac[k] = v end end
-
-  g_ui.loadUIFromString([[
-AutoLootWindow < MainWindow
-  !text: tr('Auto Loot')
-  size: 420 668
-  @onEscape: self:hide()
-
-  VbTitle
-    id: tBp
-    anchors.top: parent.top
-    anchors.left: parent.left
-    text: Donde guardar
-
-  BotItem
-    id: bpItem
-    anchors.top: tBp.bottom
-    anchors.left: parent.left
-    margin-top: 4
-
-  VbHint
-    id: hBp
-    anchors.top: bpItem.top
-    anchors.left: bpItem.right
-    anchors.right: parent.right
-    margin-left: 8
-    text: Arrastra aqui tu mochila de loot. Si se llena, abre la siguiente igual que este dentro. Vacio = cualquier mochila abierta con espacio.
-
-  HorizontalSeparator
-    id: sep1
-    anchors.top: bpItem.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 10
-
-  VbTitle
-    id: tItems
-    anchors.top: sep1.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Que lootear
-
-  CheckBox
-    id: lootAll
-    anchors.top: tItems.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: Abrir el cuerpo y recoger TODO (ignora la lista)
-
-  BotContainer
-    id: items
-    anchors.top: lootAll.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    height: 72
-
-  CheckBox
-    id: coins
-    anchors.top: items.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: Siempre recoger monedas (gold, platinum, crystal)
-
-  HorizontalSeparator
-    id: sep2
-    anchors.top: coins.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-
-  VbTitle
-    id: tSkip
-    anchors.top: sep2.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: No lootear estos mobs
-
-  TextEdit
-    id: skipNames
-    anchors.top: tSkip.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    height: 22
-    !tooltip: tr('Ej: rat, cave rat, bug')
-
-  VbHint
-    id: hSkip
-    anchors.top: skipNames.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 4
-    text: Nombres separados por coma. Lo que va entre [ ] se ignora.
-
-  HorizontalSeparator
-    id: sep3
-    anchors.top: hSkip.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-
-  VbTitle
-    id: tOpts
-    anchors.top: sep3.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Opciones
-
-  Label
-    id: lDist
-    anchors.top: tOpts.bottom
-    anchors.left: parent.left
-    margin-top: 10
-    width: 270
-    text: Distancia maxima al cuerpo (sqm)
-
-  SpinBox
-    id: maxDist
-    anchors.verticalCenter: lDist.verticalCenter
-    anchors.left: lDist.right
-    width: 50
-    minimum: 1
-    maximum: 10
-
-  Label
-    id: lWait
-    anchors.top: lDist.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 270
-    text: Esperar si hay mobs a X sqm (0 = no)
-
-  SpinBox
-    id: waitMobs
-    anchors.verticalCenter: lWait.verticalCenter
-    anchors.left: lWait.right
-    width: 50
-    minimum: 0
-    maximum: 10
-
-  Label
-    id: lCap
-    anchors.top: lWait.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 270
-    text: Cap minima para lootear (0 = no)
-
-  SpinBox
-    id: minCap
-    anchors.verticalCenter: lCap.verticalCenter
-    anchors.left: lCap.right
-    width: 50
-    minimum: 0
-    maximum: 99999
-    step: 50
-
-  CheckBox
-    id: onlyMine
-    anchors.top: lCap.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 12
-    text: Solo los mobs que yo ataque
-
-  CheckBox
-    id: pausePk
-    anchors.top: onlyMine.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: Pausar si hay PK en pantalla
-
-  CheckBox
-    id: closeCorpse
-    anchors.top: pausePk.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: Cerrar el cuerpo al terminar
-
-  CheckBox
-    id: fightAdjacent
-    anchors.top: closeCorpse.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: En pelea solo cuerpos pegados (los demas al terminar)
-
-  VbHint
-    id: hTb
-    anchors.top: fightAdjacent.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-    text: Apaga el Looting del TargetBot de vBot para que no looteen los dos a la vez.
-
-  HorizontalSeparator
-    id: sepBottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: status.top
-    margin-bottom: 4
-
-  VbStatus
-    id: status
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: enableBtn.top
-    margin-bottom: 6
-    text: Inactivo
-
-  Button
-    id: enableBtn
-    anchors.bottom: parent.bottom
-    anchors.left: parent.left
-    width: 90
-    text: Activar
-
-  Button
-    id: closeBtn
-    anchors.bottom: parent.bottom
-    anchors.right: parent.right
-    width: 70
-    text: Cerrar
-]])
-
-  UIx.header("AUTO LOOT")
-  local aUI = UIx.scriptPanel("Auto Loot")
-  local aWin = UI.createWindow('AutoLootWindow', rootWidget)
-  aWin:hide()
-
-  local lastSt = ""
-  local function setSt(t, c)
-    if t == lastSt then return end
-    lastSt = t
-    UIx.setLabel(aUI.status, t, c)
-    UIx.setLabel(aWin.status, t, c)
-  end
-
-  -- ----- Ventana -----
-  aWin.bpItem:setItemId(ac.bpId or 0)
-  aWin.bpItem.onItemChange = function(w) ac.bpId = w:getItemId() end
-  local function bindCheck(id)
-    aWin[id]:setChecked(ac[id] == true)
-    aWin[id].onCheckChange = function(w, v) ac[id] = v end
-  end
-  local function bindSpin(id)
-    aWin[id]:setValue(ac[id] or 0)
-    aWin[id].onValueChange = function(w, v) ac[id] = v end
-  end
-  for _, id in ipairs({"lootAll", "coins", "onlyMine", "pausePk", "closeCorpse", "fightAdjacent"}) do bindCheck(id) end
-  for _, id in ipairs({"maxDist", "waitMobs", "minCap"}) do bindSpin(id) end
-  aWin.skipNames:setText(ac.skipNames or "")
-  aWin.skipNames.onTextChange = function(w, t) ac.skipNames = t end
-
-  -- Lista de items (igual que la del Target de vBot). Se guardan los IDs.
-  local listOk = pcall(function()
-    UI.Container(function(widget, items)
-      local ids = {}
-      for _, it in ipairs(items or {}) do
-        local id = type(it) == "table" and it.id or it
-        if type(id) == "number" and id > 0 then table.insert(ids, id) end
-      end
-      ac.items = ids
-    end, true, nil, aWin.items)
-    aWin.items:setItems(ac.items or {})
-  end)
-
-  aWin.closeBtn.onClick = function() aWin:hide() end
-  aUI.setupBtn.onClick = function() UIx.toggleWindow(aWin) end
-  UIx.bindSwitch(ac, aUI.switch, aWin.enableBtn, function(v)
-    if v then
-      setSt(listOk and "Activo" or "Activo (lista no disponible: usa Recoger TODO)", "#66ff66")
-    else
-      setSt("Inactivo", "#888888")
-    end
-  end)
-
-  -- ----- Ayudas -----
-  local NEVER = -1000000
-  local function dist(a, b)
-    if not a or not b or a.z ~= b.z then return 99 end
-    return math.max(math.abs(a.x - b.x), math.abs(a.y - b.y))
-  end
-  local function posKey(p) return p.x .. "," .. p.y .. "," .. p.z end
-  local function cCount(c) return c.getItemsCount and c:getItemsCount() or #c:getItems() end
-  local function hasRoom(c)
-    local cap = c.getCapacity and c:getCapacity() or 0
-    return cap > cCount(c)
-  end
-  local function myCap()
-    local ok, v = pcall(function() return freecap() end)
-    return (ok and type(v) == "number") and v or 99999
-  end
-
-  local skipText, skipSet = nil, {}
-  local function skipped(name)
-    local txt = ac.skipNames or ""
-    if txt ~= skipText then
-      skipText, skipSet = txt, {}
-      for n in txt:gmatch("[^,]+") do
-        local b = Shared.baseName(n)
-        if b ~= "" then skipSet[b] = true end
-      end
-    end
-    return skipSet[Shared.baseName(name)] == true
-  end
-
-  -- vBot no trae next(): revisar si una tabla esta vacia a mano
-  local function isEmpty(t)
-    for _ in pairs(t) do return false end
-    return true
-  end
-
-  local function wantedSet()
-    local set = {}
-    for _, id in ipairs(ac.items or {}) do set[id] = true end
-    if ac.coins then for _, id in ipairs(COINS) do set[id] = true end end
-    return set
-  end
-
-  -- ----- Muertes: cola de cuerpos por lootear -----
-  local queue = {}          -- {pos, name, at}
-  local seenDead = {}       -- [creatureId] = at
-  local attacked = {}       -- [creatureId] = ultima vez que lo ataque
-  local opened = {}         -- cuerpos ya looteados: {obj, at}
-
-  local function onDeath(cr)
-    if not ac.enabled then return end
-    local ok, isMob = pcall(function() return cr:isMonster() end)
-    if not ok or not isMob then return end
-    local id = cr:getId()
-    if seenDead[id] then return end
-    seenDead[id] = now
-    if Shared.isSummon(cr) then return end
-    local name = cr:getName() or ""
-    if skipped(name) then return end
-    if ac.onlyMine and now - (attacked[id] or NEVER) > 15000 then return end
-    local p = cr:getPosition()
-    local me = player:getPosition()
-    if not p or dist(me, p) > (ac.maxDist or 6) + 2 then return end
-    table.insert(queue, {pos = {x = p.x, y = p.y, z = p.z}, name = name, at = now})
-  end
-
-  pcall(function()
-    onCreatureHealthPercentChange(function(cr, hp)
-      if hp == 0 then pcall(onDeath, cr) end
-    end)
-  end)
-
-  -- ----- Cuerpo actual -----
-  local cur = nil           -- {pos, corpseId, openAt, tries, before, cid, waitUntil, lastCount}
-  local lastOpenBp, capBlockUntil = NEVER, NEVER
-  local fullUntil, lastDestCid = {}, nil   -- BPs que el servidor dijo llenas
-
-  local function wasOpened(obj)
-    for _, o in ipairs(opened) do if o.obj == obj then return true end end
-    return false
-  end
-
-  -- done = true: cuerpo terminado. false: no se pudo, vuelve a la cola
-  -- (se reintenta despues, hasta 4 veces y 2 minutos).
-  local function finish(done)
-    if cur then
-      if done then
-        if cur.obj then table.insert(opened, {obj = cur.obj, at = now}) end
-      elseif cur.entry then
-        local e = cur.entry
-        e.tries = (e.tries or 0) + 1
-        if e.tries < 4 then table.insert(queue, e) end
-      end
-      if cur.cid and ac.closeCorpse then
-        local c = g_game.getContainer(cur.cid)
-        if c then pcall(function() g_game.close(c) end) end
-      end
-    end
-    cur = nil
-  end
-
-  -- Mensajes del servidor sobre el loot
-  Shared.onText(function(mode, text)
-    if not cur then return end
-    local t = (text or ""):lower()
-    if t:find("not the owner") or t:find("no eres el due") then
-      finish(true)
-    elseif t:find("too heavy") or t:find("demasiado pesad") then
-      capBlockUntil = now + 10000
-      finish(false)
-    elseif (t:find("not enough room") or t:find("no hay suficiente espacio")
-            or t:find("cannot put more")) and lastDestCid then
-      fullUntil[lastDestCid] = now + 5000
-    end
-  end)
-
-  -- Busca el cuerpo (contenedor) en el sqm donde murio el mob
-  local function corpseAt(pos)
-    local tile = g_map.getTile(pos)
-    if not tile then return nil end
-    local items = tile:getItems() or {}
-    for i = #items, 1, -1 do
-      local it = items[i]
-      if it:isContainer() and not wasOpened(it) then
-        local okp, pick = pcall(function() return it:isPickupable() end)
-        if not (okp and pick) then return it end   -- los cuerpos no se levantan
-      end
-    end
-    return nil
-  end
-
-  -- Donde dejar el loot. Devuelve la posicion o nil + motivo.
-  local function lootDest()
-    local bpId = ac.bpId or 0
-    local fullBp
-    for cid, c in pairs(g_game.getContainers()) do
-      if not (cur and cid == cur.cid) then
-        local ci = c.getContainerItem and c:getContainerItem()
-        local iid = ci and ci:getId() or 0
-        local okp, pick = pcall(function() return ci and ci:isPickupable() end)
-        if okp and pick and (bpId == 0 or iid == bpId) then
-          if hasRoom(c) and now >= (fullUntil[cid] or 0) then
-            lastDestCid = cid
-            return c:getSlotPosition(cCount(c))
-          end
-          if iid == bpId then fullBp = c end
-        end
-      end
-    end
-    if bpId == 0 then return nil, "Sin espacio en mochilas abiertas" end
-    if now - lastOpenBp < 1000 then return nil, "Abriendo BP de loot..." end
-    if fullBp then
-      for _, it in ipairs(fullBp:getItems()) do
-        if it:getId() == bpId then
-          g_game.open(it, fullBp)
-          lastOpenBp = now
-          return nil, "BP llena: abriendo la siguiente"
-        end
-      end
-      return nil, "BP de loot llena"
-    end
-    local it = findItem(bpId)
-    if not it then
-      local back = getInventoryItem(SlotBack)
-      if back and back:getId() == bpId then it = back end
-    end
-    if it then
-      g_game.open(it, nil)
-      lastOpenBp = now
-      return nil, "Abriendo BP de loot..."
-    end
-    return nil, "No encuentro la BP de loot (abre tu mochila)"
-  end
-
-  local function holdCaveBot()
-    pcall(function()
-      if CaveBot and CaveBot.isOn and CaveBot.isOn() and CaveBot.delay then CaveBot.delay(300) end
-    end)
-  end
-
-  local function mobsNear(r)
-    if r <= 0 then return false end
-    local me = player:getPosition()
-    for _, cr in ipairs(getSpectators()) do
-      if cr:isMonster() and not Shared.isSummon(cr) and (cr:getHealthPercent() or 0) > 0
-         and dist(me, cr:getPosition()) <= r then
-        return true
-      end
-    end
-    return false
-  end
-
-  -- En pelea = atacando a un monstruo vivo o con mobs a 2 sqm
-  local function inFight()
-    local t = g_game.getAttackingCreature()
-    if t then
-      local ok, alive = pcall(function() return t:isMonster() and (t:getHealthPercent() or 0) > 0 end)
-      if ok and alive then return true end
-    end
-    return mobsNear(2)
-  end
-
-  local function walkTo(pos)
-    local ok = pcall(function() autoWalk(pos, 20, {ignoreNonPathable = true, precision = 1}) end)
-    if not ok then pcall(function() player:autoWalk(pos) end) end
-  end
-
-  local function openCorpse(it)
-    cur.before = {}
-    for cid in pairs(g_game.getContainers()) do cur.before[cid] = true end
-    cur.phase, cur.openAt, cur.obj, cur.corpseId = "open", now, it, it:getId()
-    g_game.open(it, nil)
-    setSt("Abriendo " .. (cur.name or "cuerpo"), "#88ccff")
-  end
-
-  macro(100, function()
-    if not ac.enabled or not g_game.isOnline() then return end
-
-    -- Respaldo: muertes que no avisaron por evento + a quien ataco
-    local tgt = g_game.getAttackingCreature()
-    if tgt then attacked[tgt:getId()] = now end
-    for _, cr in ipairs(getSpectators()) do
-      if cr:isMonster() and (cr:getHealthPercent() or 1) == 0 then pcall(onDeath, cr) end
-    end
-    -- Limpieza
-    for k, t in pairs(seenDead) do if now - t > 60000 then seenDead[k] = nil end end
-    for k, t in pairs(attacked) do if now - t > 60000 then attacked[k] = nil end end
-    for i = #opened, 1, -1 do if now - opened[i].at > 180000 then table.remove(opened, i) end end
-    for i = #queue, 1, -1 do if now - queue[i].at > 120000 then table.remove(queue, i) end end
-
-    if ac.pausePk and #Shared.pkList() > 0 then setSt("Pausa: PK en pantalla", "#ffaa44"); return end
-    if now < capBlockUntil or ((ac.minCap or 0) > 0 and myCap() < ac.minCap) then
-      setSt("Pausa: poca capacidad", "#ffaa44"); return
-    end
-    if mobsNear(ac.waitMobs or 0) then
-      if cur or #queue > 0 then setSt("Esperando: hay mobs cerca", "#ffcc66") end
-      return
-    end
-
-    local me = player:getPosition()
-    local fight = ac.fightAdjacent ~= false and inFight()
-
-    -- 1) Cuerpo abierto: sacar items de a uno
-    if cur and cur.cid then
-      local c = g_game.getContainer(cur.cid)
-      if not c then finish(true); return end
-      holdCaveBot()
-      local items = c:getItems()
-      if cur.lastCount and #items == cur.lastCount and now < (cur.waitUntil or 0) then return end
-      local want = (not ac.lootAll) and wantedSet() or nil
-      local pick
-      for _, it in ipairs(items) do
-        if ac.lootAll or want[it:getId()] then pick = it; break end
-      end
-      if not pick then finish(true); setSt("Activo", "#66ff66"); return end
-      local dest, why = lootDest()
-      if not dest then setSt(why, "#ffaa44"); return end
-      local cnt = (pick.isStackable and pick:isStackable()) and pick:getCount() or 1
-      g_game.move(pick, dest, cnt)
-      cur.lastCount, cur.waitUntil = #items, now + 600
-      setSt("Looteando " .. (cur.name or "cuerpo"), "#88ff88")
-      return
-    end
-
-    -- 2) Cuerpo en camino: caminando hacia el o esperando que se abra
-    if cur then
-      local d = dist(me, cur.pos)
-      if cur.phase == "walk" then
-        if fight then finish(false); return end          -- volvio la pelea: despues
-        holdCaveBot()
-        if d <= 1 then
-          local it = corpseAt(cur.pos)
-          if not it then finish(true); return end
-          openCorpse(it)
-          return
-        end
-        if now - cur.walkAt > 1200 + d * 400 then
-          if cur.walkTries >= 2 then finish(false); return end
-          walkTo(cur.pos)
-          cur.walkAt, cur.walkTries = now, cur.walkTries + 1
-        end
-        return
-      end
-      -- fase "open"
-      holdCaveBot()
-      for cid, c in pairs(g_game.getContainers()) do
-        local ci = c.getContainerItem and c:getContainerItem()
-        if not cur.before[cid] and ci and ci:getId() == cur.corpseId then
-          cur.cid = cid
-          return
-        end
-      end
-      if now - cur.openAt > 1200 then
-        if d > 1 then
-          if fight then finish(false); return end
-          cur.phase, cur.walkAt, cur.walkTries = "walk", now, 1
-          walkTo(cur.pos)
-          return
-        end
-        if cur.openTries >= 3 then finish(false); return end
-        local it = corpseAt(cur.pos)
-        if not it then finish(true); return end
-        cur.openTries = cur.openTries + 1
-        openCorpse(it)
-      end
-      return
-    end
-
-    -- 3) Siguiente cuerpo: el MAS CERCANO. En pelea, solo los pegados.
-    local bestI, bestD
-    for i, q in ipairs(queue) do
-      local d = dist(me, q.pos)
-      if d <= (ac.maxDist or 6) and (not fight or d <= 1) and (not bestD or d < bestD) then
-        bestI, bestD = i, d
-      end
-    end
-    if not bestI then
-      local pending = 0
-      for _, q in ipairs(queue) do if dist(me, q.pos) <= (ac.maxDist or 6) then pending = pending + 1 end end
-      if fight and pending > 0 then
-        setSt("Peleando: " .. pending .. " cuerpo(s) para despues", "#ffcc66")
-      elseif lastSt ~= "Activo" and not lastSt:find("^Lista") then
-        setSt("Activo", "#66ff66")
-      end
-      return
-    end
-    local q = queue[bestI]
-    local it = corpseAt(q.pos)
-    if not it then
-      if now - q.at > 2500 then table.remove(queue, bestI) end
-      return
-    end
-    table.remove(queue, bestI)
-    if not ac.lootAll and isEmpty(wantedSet()) then
-      setSt("Lista vacia: agrega items o marca Recoger TODO", "#ffaa44")
-      return
-    end
-    cur = {entry = q, pos = q.pos, name = q.name, openTries = 1, walkTries = 0}
-    holdCaveBot()
-    if bestD <= 1 then
-      openCorpse(it)
-    else
-      cur.phase, cur.walkAt, cur.walkTries = "walk", now, 1
-      walkTo(q.pos)
-      setSt("Yendo a " .. q.name, "#88ccff")
     end
   end)
 end
@@ -11486,6 +10831,523 @@ AutoFollowWindow < MainWindow
     if r=="same" then setSt("Siguiendo a "..target:getName(), "#66ccff")
     elseif r=="floor" then setSt("Siguiendo por piso a "..target:getName().."...", "#66ccff")
     else setSt("Perdi a "..target:getName(), "#ffaa44") end
+  end)
+end
+endSection(__sec)
+
+-- #####################################################################
+-- 15. PVP - RECOGER TODO (cuerpos y piso)
+--  - Saca TODO de los cuerpos que ya esten abiertos (los abre tu, el
+--    follow o el target). Solo cuerpos: nunca locker, depot, cofres ni
+--    buzones, y no actua en zona protegida.
+--  - Recoge los items que esten tirados en el piso.
+--  - Se usa con hotkey o con el boton "Recoger ahora". Opcional:
+--    modo automatico (solo cuando no estas atacando).
+--  - Distancia (piso) 1 = solo lo pegado a ti (no camina). Mas = camina.
+--  - Respeta el exhaust: el servidor comparte el turno de accion entre
+--    pociones y mover items. Espera a que termine el de la pocion y le
+--    pide al healer que aguante la siguiente un instante (solo con
+--    HP > 60%). Tambien espera si el EquipCore esta cambiando el set.
+--  - Lista de items que NO se recogen.
+--  - Guarda SOLO en la mochila elegida (o la principal si no eliges).
+--    Nunca saca items de tus mochilas: solo de cuerpos y del piso.
+-- #####################################################################
+__sec = startSection("PvP")
+UIx.header("RECOGER TODO")
+do
+  local RK = "pickAllV1"
+  local DEF = {
+    enabled = false, corpses = true, floor = true, range = 1,
+    hotkey = "", auto = false, bpId = 0, exclude = {}, closeCorpse = true,
+  }
+  if type(storage[RK]) ~= "table" then storage[RK] = {} end
+  local rc = storage[RK]
+  for k, v in pairs(DEF) do if rc[k] == nil then rc[k] = v end end
+
+  g_ui.loadUIFromString([[
+PickAllWindow < MainWindow
+  !text: tr('Recoger Todo')
+  size: 400 544
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tWhat
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Que recoger
+
+  CheckBox
+    id: corpses
+    anchors.top: tWhat.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Sacar TODO de los cuerpos abiertos
+
+  CheckBox
+    id: floor
+    anchors.top: corpses.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Recoger los items del piso
+
+  Label
+    id: lRange
+    anchors.top: floor.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 260
+    text: Distancia en el piso (1 = pegado, no camina)
+
+  SpinBox
+    id: range
+    anchors.verticalCenter: lRange.verticalCenter
+    anchors.left: lRange.right
+    width: 50
+    minimum: 1
+    maximum: 7
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: lRange.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+
+  VbTitle
+    id: tHow
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Como usarlo
+
+  Label
+    id: lHotkey
+    anchors.top: tHow.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    width: 60
+    text: Hotkey:
+
+  TextEdit
+    id: hotkey
+    anchors.verticalCenter: lHotkey.verticalCenter
+    anchors.left: lHotkey.right
+    width: 80
+    height: 20
+    !tooltip: tr('Ej: F7 o Ctrl+F7. Vacio = sin hotkey')
+
+  Button
+    id: nowBtn
+    anchors.verticalCenter: lHotkey.verticalCenter
+    anchors.left: hotkey.right
+    anchors.right: parent.right
+    margin-left: 10
+    height: 22
+    text: Recoger ahora
+
+  CheckBox
+    id: auto
+    anchors.top: lHotkey.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+    text: Automatico (solo cuando no estoy atacando)
+
+  CheckBox
+    id: closeCorpse
+    anchors.top: auto.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Cerrar el cuerpo al vaciarlo
+
+  HorizontalSeparator
+    id: sep2
+    anchors.top: closeCorpse.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+
+  VbTitle
+    id: tBp
+    anchors.top: sep2.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Donde guardar
+
+  BotItem
+    id: bpItem
+    anchors.top: tBp.bottom
+    anchors.left: parent.left
+    margin-top: 4
+
+  VbHint
+    id: hBp
+    anchors.top: bpItem.top
+    anchors.left: bpItem.right
+    anchors.right: parent.right
+    margin-left: 8
+    text: Solo guarda en esta mochila (si se llena, abre la siguiente igual que este dentro). Vacio = tu mochila principal. Nunca saca items de tus mochilas.
+
+  VbTitle
+    id: tEx
+    anchors.top: bpItem.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    text: NO recoger estos items
+
+  BotContainer
+    id: exclude
+    anchors.top: tEx.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 72
+
+  HorizontalSeparator
+    id: sepBottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: status.top
+    margin-bottom: 4
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  local pUI = UIx.scriptPanel("Recoger Todo")
+  local pWin = UI.createWindow('PickAllWindow', rootWidget)
+  pWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(pUI.status, t, c)
+    UIx.setLabel(pWin.status, t, c)
+  end
+
+  -- ----- Ventana -----
+  for _, id in ipairs({"corpses", "floor", "auto", "closeCorpse"}) do
+    pWin[id]:setChecked(rc[id] == true)
+    pWin[id].onCheckChange = function(w, v) rc[id] = v end
+  end
+  pWin.range:setValue(rc.range or 1)
+  pWin.range.onValueChange = function(w, v) rc.range = v end
+  pWin.hotkey:setText(rc.hotkey or "")
+  pWin.hotkey.onTextChange = function(w, t) rc.hotkey = t end
+  pWin.bpItem:setItemId(rc.bpId or 0)
+  pWin.bpItem.onItemChange = function(w) rc.bpId = w:getItemId() end
+  pcall(function()
+    UI.Container(function(widget, items)
+      local ids = {}
+      for _, it in ipairs(items or {}) do
+        local id = type(it) == "table" and it.id or it
+        if type(id) == "number" and id > 0 then table.insert(ids, id) end
+      end
+      rc.exclude = ids
+    end, true, nil, pWin.exclude)
+    pWin.exclude:setItems(rc.exclude or {})
+  end)
+  pWin.closeBtn.onClick = function() pWin:hide() end
+  pUI.setupBtn.onClick = function() UIx.toggleWindow(pWin) end
+
+  local NEVER = -1000000
+  local job = nil           -- {untilAt}
+  local function startJob()
+    if not rc.enabled then setSt("Activalo primero", "#ffaa44"); return end
+    job = {untilAt = now + 20000}
+    setSt("Recogiendo...", "#88ccff")
+  end
+  pWin.nowBtn.onClick = startJob
+
+  UIx.bindSwitch(rc, pUI.switch, pWin.enableBtn, function(v)
+    if not v then job = nil end
+    setSt(v and "Listo (hotkey / boton)" or "Inactivo", v and "#66ff66" or "#888888")
+  end)
+
+  local function normKey(s)
+    local r = (s or ""):lower():gsub("%s", "")
+    return r
+  end
+  pcall(function()
+    onKeyDown(function(keys)
+      local k = normKey(rc.hotkey)
+      if k ~= "" and normKey(keys) == k then startJob() end
+    end)
+  end)
+
+  -- ----- Ayudas -----
+  local function dist(a, b)
+    if not a or not b or a.z ~= b.z then return 99 end
+    return math.max(math.abs(a.x - b.x), math.abs(a.y - b.y))
+  end
+  local function cCount(c) return c.getItemsCount and c:getItemsCount() or #c:getItems() end
+  local function hasRoom(c)
+    local cap = c.getCapacity and c:getCapacity() or 0
+    return cap > cCount(c)
+  end
+  local function isPick(it)
+    local ok, v = pcall(function() return it:isPickupable() end)
+    return ok and v == true
+  end
+  local function isCont(it)
+    local ok, v = pcall(function() return it:isContainer() end)
+    return ok and v == true
+  end
+  local function excluded(id)
+    for _, e in ipairs(rc.exclude or {}) do if e == id then return true end end
+    return false
+  end
+
+  local pendingMove = nil    -- {obj, at}
+  local fullUntil, lastDestCid = {}, nil
+  local lastOpenBp, lastWalk = NEVER, NEVER
+  local corpseWait = {}      -- [cid] = no tocar hasta (ms), tras mover
+
+  -- Es un CUERPO? (contenedor que no se puede levantar y que no es
+  -- locker, depot, cofre, buzon...). Nunca en zona protegida.
+  local NOT_CORPSE = {"locker", "depot", "chest", "box", "inbox", "mail", "stash",
+                      "cofre", "buzon", "caja", "deposito"}
+  local function isCorpseContainer(c)
+    local ci = c.getContainerItem and c:getContainerItem()
+    if not ci or isPick(ci) then return false end
+    local okn, name = pcall(function() return c:getName() end)
+    name = (okn and type(name) == "string") and name:lower() or ""
+    for _, w in ipairs(NOT_CORPSE) do
+      if name:find(w, 1, true) then return false end
+    end
+    return true
+  end
+
+  -- Primer cuerpo abierto que todavia tenga algo para sacar
+  local function openCorpseWork()
+    for cid, c in pairs(g_game.getContainers()) do
+      if isCorpseContainer(c) then
+        for _, it in ipairs(c:getItems()) do
+          if not excluded(it:getId()) then return c, cid, it end
+        end
+        -- vacio (o solo items excluidos): cerrarlo si se pidio
+        if rc.closeCorpse and job and now >= (corpseWait[cid] or 0) then
+          pcall(function() g_game.close(c) end)
+        end
+      end
+    end
+    return nil
+  end
+
+  Shared.onText(function(mode, text)
+    if not job then return end
+    local t = (text or ""):lower()
+    if t:find("too heavy") or t:find("demasiado pesad") or t:find("not enough capacity") then
+      job = nil
+      setSt("Sin capacidad", "#ff6666")
+    elseif (t:find("not enough room") or t:find("no hay suficiente espacio")
+            or t:find("cannot put more")) and lastDestCid then
+      fullUntil[lastDestCid] = now + 5000
+    end
+  end)
+
+  -- Destino: SOLO la mochila elegida. Si no elegiste, la mochila
+  -- principal (la que tienes puesta en la espalda). Nunca otra.
+  local function lootDest()
+    local bpId = rc.bpId or 0
+    if bpId == 0 then
+      local back = getInventoryItem(SlotBack)
+      bpId = back and back:getId() or 0
+    end
+    if bpId == 0 then return nil, "Elige la mochila en Config" end
+    local fullBp
+    for cid, c in pairs(g_game.getContainers()) do
+      do
+        local ci = c.getContainerItem and c:getContainerItem()
+        local iid = ci and ci:getId() or 0
+        if ci and isPick(ci) and iid == bpId then
+          if hasRoom(c) and now >= (fullUntil[cid] or 0) then
+            lastDestCid = cid
+            return c:getSlotPosition(cCount(c))
+          end
+          if iid == bpId then fullBp = c end
+        end
+      end
+    end
+    if now - lastOpenBp < 1000 then return nil, "Abriendo mochila..." end
+    if fullBp then
+      for _, it in ipairs(fullBp:getItems()) do
+        if it:getId() == bpId then
+          g_game.open(it, fullBp)
+          lastOpenBp = now
+          return nil, "Mochila llena: abriendo la siguiente"
+        end
+      end
+      return nil, "Mochila llena"
+    end
+    local it = findItem(bpId)
+    if not it then
+      local back = getInventoryItem(SlotBack)
+      if back and back:getId() == bpId then it = back end
+    end
+    if it then
+      g_game.open(it, nil)
+      lastOpenBp = now
+      return nil, "Abriendo mochila..."
+    end
+    return nil, "No encuentro la mochila (abre tu backpack)"
+  end
+
+  -- Item del piso mas cercano (el de arriba de cada sqm)
+  local function findFloor()
+    if not rc.floor then return nil end
+    local me = player:getPosition()
+    if not me then return nil end
+    local r = math.max(1, rc.range or 1)
+    local best, bestD
+    for dx = -r, r do
+      for dy = -r, r do
+        local d = math.max(math.abs(dx), math.abs(dy))
+        if not bestD or d < bestD then
+          local pos = {x = me.x + dx, y = me.y + dy, z = me.z}
+          local tile = g_map.getTile(pos)
+          if tile then
+            local okt, top = pcall(function() return tile:getTopMoveThing() end)
+            if okt and top and top.isItem and top:isItem() and isPick(top)
+               and not excluded(top:getId()) then
+              best, bestD = {obj = top, pos = pos}, d
+            end
+          end
+        end
+      end
+    end
+    return best, bestD
+  end
+
+  -- Turno de accion libre? (exhaust de pocion / cambio de set)
+  local function actionReady()
+    if now - (Shared.lastEquipMove or NEVER) < 800 then return false, "Esperando cambio de set..." end
+    if now - (Shared.lastSelfPotion or NEVER) < 1000 then
+      Shared.moveWantAt = now      -- el healer aguanta la siguiente pocion (HP > 60%)
+      return false, nil
+    end
+    return true
+  end
+
+  local function attacking()
+    local t = g_game.getAttackingCreature()
+    return t ~= nil
+  end
+
+  macro(100, function()
+    if not rc.enabled or not g_game.isOnline() then return end
+    if Shared.inPz() then
+      if job then job = nil; setSt("En zona protegida: no recoge", "#ffaa44") end
+      return
+    end
+
+    -- Modo automatico: arranca solo si hay algo y no estas atacando
+    if not job and rc.auto and not attacking() then
+      if (rc.corpses and openCorpseWork()) or findFloor() then
+        job = {untilAt = now + 20000}
+      end
+    end
+    if not job then return end
+    if now > job.untilAt then
+      job = nil
+      setSt("Tiempo agotado", "#ffaa44")
+      return
+    end
+
+    -- Esperando que el servidor confirme el ultimo movimiento
+    if pendingMove then
+      local gone = true
+      pcall(function()
+        local p = pendingMove.obj:getPosition()
+        if p and p.x ~= 65535 then
+          local tile = g_map.getTile(p)
+          local top = tile and tile:getTopMoveThing()
+          gone = (top ~= pendingMove.obj)
+        elseif pendingMove.cid then
+          local c = g_game.getContainer(pendingMove.cid)
+          gone = (not c) or #c:getItems() < pendingMove.count
+        end
+      end)
+      if not gone and now - pendingMove.at < 700 then return end
+      pendingMove = nil
+    end
+
+    -- 1) Cuerpos ya abiertos: sacar todo, de a uno
+    if rc.corpses then
+      local c, cid, pick = openCorpseWork()
+      if c then
+        local ok, why = actionReady()
+        if not ok then setSt(why or "Esperando exhaust...", "#ffcc66"); return end
+        local dest, why2 = lootDest()
+        if not dest then setSt(why2, "#ffaa44"); return end
+        local cnt = (pick.isStackable and pick:isStackable()) and pick:getCount() or 1
+        local before = #c:getItems()
+        g_game.move(pick, dest, cnt)
+        pendingMove = {obj = pick, at = now, cid = cid, count = before}
+        corpseWait[cid] = now + 800
+        setSt("Sacando del cuerpo...", "#88ff88")
+        return
+      end
+    end
+
+    -- 2) Items del piso
+    local w, d = findFloor()
+    if not w then
+      -- al terminar: cerrar los cuerpos que quedaron vacios
+      if rc.closeCorpse then
+        for cid, c in pairs(g_game.getContainers()) do
+          if isCorpseContainer(c) then
+            local left = false
+            for _, it in ipairs(c:getItems()) do
+              if not excluded(it:getId()) then left = true; break end
+            end
+            if not left then pcall(function() g_game.close(c) end) end
+          end
+        end
+      end
+      job = nil
+      setSt("Listo: no queda nada", "#66ff66")
+      return
+    end
+    if d > 1 then
+      if now - lastWalk > 1200 then
+        lastWalk = now
+        pcall(function() autoWalk(w.pos, 20, {ignoreNonPathable = true, precision = 1}) end)
+        setSt("Caminando...", "#88ccff")
+      end
+      return
+    end
+    local ok, why = actionReady()
+    if not ok then setSt(why or "Esperando exhaust...", "#ffcc66"); return end
+    local dest, why2 = lootDest()
+    if not dest then setSt(why2, "#ffaa44"); return end
+    local cnt = (w.obj.isStackable and w.obj:isStackable()) and w.obj:getCount() or 1
+    g_game.move(w.obj, dest, cnt)
+    pendingMove = {obj = w.obj, at = now}
+    setSt("Recogiendo del piso...", "#88ff88")
   end)
 end
 endSection(__sec)
