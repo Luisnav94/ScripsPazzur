@@ -6,8 +6,10 @@
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
 --
 --  CAMBIOS v68
---   - La pestana "Target" de vBot pasa al final, para que PvP quede a
---     mano. Solo se mueve el boton; si tu vBot no lo permite, no pasa nada.
+--   - Tus pestanas van primero (Main, HP, Equipo, Cave, PvP) y despues
+--     las de vBot (Target, Tools...), para que PvP quede a mano. Solo
+--     se mueven los botones; si tu vBot no lo permite, no pasa nada.
+--     Deja una linea en la consola del bot diciendo si pudo o no.
 --
 --  CAMBIOS v67
 --   - NUEVO "Auto Loot" (pestana Cave, debajo del Dynamic Lure): BP de
@@ -11395,64 +11397,98 @@ end
 endSection(__sec)
 
 -- #####################################################################
--- ORDEN DE PESTANAS: pasar "Target" (pestana de vBot) al final
---  Solo mueve el BOTON de la pestana; su contenido no se toca. Si la
---  version de vBot no lo permite, no hace nada (no afecta a nada mas).
---  Se intenta varias veces porque vBot puede crear "Target" despues.
+-- ORDEN DE PESTANAS: tus pestanas primero (Main, HP, Equipo, Cave, PvP)
+--  y despues las de vBot (Target, Tools...). Solo mueve los BOTONES de
+--  las pestanas; su contenido no se toca. Si la version de vBot no lo
+--  permite, no hace nada. Deja una linea en la consola del bot.
 -- #####################################################################
 do
-  local function tabText(w)
+  local ORDER = {"main", "hp", "equipo", "cave", "pvp"}
+
+  local function low(w)
     local ok, t = pcall(function() return w:getText() end)
     return ok and type(t) == "string" and t:lower() or ""
   end
-
-  -- Barra de pestanas: subiendo desde el panel de una pestana
-  local function findBar()
-    local content
-    pcall(function()
-      setDefaultTab("Main")
-      local probe = setupUI("Panel\n  height: 1")
-      content = probe:getParent()
-      probe:destroy()
-    end)
-    local w = content
-    for _ = 1, 15 do
-      if not w then break end
-      local ok, tabs = pcall(function() return w.tabs end)
-      if ok and type(tabs) == "table" and #tabs > 0 then return w, tabs end
-      local okp, parent = pcall(function() return w:getParent() end)
-      w = okp and parent or nil
+  local function isBar(w)
+    local ok, tabs = pcall(function() return w.tabs end)
+    if not ok or type(tabs) ~= "table" then return nil end
+    for _, t in ipairs(tabs) do
+      if low(t) == "target" or low(t) == "main" then return tabs end
     end
     return nil
   end
 
-  local function moveTargetLast()
-    local done = false
+  -- 1) variables del modulo del bot  2) buscar en toda la interfaz
+  local function findBar()
+    local cands = {}
     pcall(function()
-      local bar, tabs = findBar()
-      if not bar then return end
-      local idx
-      for i, t in ipairs(tabs) do
-        if tabText(t) == "target" then idx = i end
-      end
-      if not idx then return end
-      local btn = tabs[idx]
-      if idx ~= #tabs then
-        table.remove(tabs, idx)
-        table.insert(tabs, btn)
-      end
-      local parent = btn:getParent()
-      if parent then
-        parent:moveChildToIndex(btn, parent:getChildCount())
-        pcall(function() parent:updateLayout() end)
-      end
-      pcall(function() if bar.updateTabs then bar:updateTabs() end end)
-      done = true
+      local gb = modules.game_bot
+      table.insert(cands, gb.botTabs)
+      table.insert(cands, gb.botWindow.contentsPanel.botTabs)
     end)
-    return done
+    pcall(function() table.insert(cands, modules.game_bot.botWindow.botTabs) end)
+    for _, c in ipairs(cands) do
+      if c and isBar(c) then return c end
+    end
+    local found
+    pcall(function()
+      local root = g_ui.getRootWidget()
+      for _, w in ipairs(root:recursiveGetChildren()) do
+        if isBar(w) then found = w; break end
+      end
+    end)
+    return found
   end
 
-  for _, ms in ipairs({300, 1500, 4000}) do
-    pcall(function() schedule(ms, moveTargetLast) end)
+  local function wantedIndex(name, tabs)
+    for i, n in ipairs(ORDER) do if n == name then return i end end
+    return nil
   end
+
+  local function reorder()
+    local bar = findBar()
+    if not bar then return false, "no encontre la barra de pestanas" end
+    local tabs = bar.tabs
+    -- posicion deseada de cada pestana nuestra (las demas quedan detras)
+    local target = 1
+    for _, name in ipairs(ORDER) do
+      local cur
+      for i, t in ipairs(tabs) do if low(t) == name then cur = i; break end end
+      if cur then
+        if cur ~= target then
+          if bar.moveTab then
+            bar:moveTab(tabs[cur], target - cur)
+          else
+            local t = table.remove(tabs, cur)
+            table.insert(tabs, target, t)
+            local parent = t:getParent()
+            if parent then pcall(function() parent:moveChildToIndex(t, target) end) end
+          end
+        end
+        target = target + 1
+      end
+    end
+    pcall(function() if bar.updateTabs then bar:updateTabs() end end)
+    pcall(function() bar:updateLayout() end)
+    local names = {}
+    for _, t in ipairs(bar.tabs) do table.insert(names, low(t)) end
+    return true, table.concat(names, ", ")
+  end
+
+  local reported = false
+  local function attempt(final)
+    local ok, done, msg = pcall(reorder)
+    if not ok then done, msg = false, tostring(done) end
+    if final and not reported then
+      reported = true
+      pcall(function()
+        local f = info or print
+        f("[Pestanas] " .. (done and ("orden: " .. msg) or ("no se pudo: " .. tostring(msg))))
+      end)
+    end
+  end
+  for _, ms in ipairs({300, 1500}) do
+    pcall(function() schedule(ms, function() attempt(false) end) end)
+  end
+  pcall(function() schedule(4000, function() attempt(true) end) end)
 end
