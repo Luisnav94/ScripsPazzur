@@ -1,9 +1,28 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 65)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 67)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v67
+--   - NUEVO "Auto Loot" (pestana Cave, debajo del Dynamic Lure): BP de
+--     loot, lista de items como la del Target, "Recoger TODO", monedas,
+--     mobs que no se lootean, distancia maxima, esperar mobs, cap minima,
+--     pausa con PK y abre la siguiente BP si se llena.
+--   - Pestanas reordenadas por uso: Main, HP, Equipo, Cave y PvP (la
+--     pestana Tools ya no se usa). La configuracion de cada script no
+--     cambia, solo donde aparece.
+--   - Ventanas mas cortas: War Healer Pazzur (hechizos en su propia
+--     ventana) y Dynamic Lure (Avanzado en su propia ventana).
+--
+--  CAMBIOS v66
+--   - Quitado "Rainbow Outfit" (no sirve en este OT).
+--   - Historial de cambios recortado: solo las ultimas versiones.
+--   - Limpieza interna: una sola funcion trim y un solo lector de
+--     mensajes del servidor para todos los scripts (antes 9 y 8).
+--   - War Healer Pazzur: Fuerte y Normal esperan el cooldown real de
+--     curacion; ya no se pierden hechizos por exhaust.
 --
 --  CAMBIOS v65
 --   - War Healer Pazzur, perfil Mago: Inmortal (MP 5-20) y Adrenalina
@@ -21,383 +40,16 @@
 --     HP de emergencia: con MANA o AUTO la vida siempre gana por debajo.
 --   - Hechizos con mana minima y pausa entre hechizos opcional.
 --
---  CAMBIOS v63
---   - NUEVO "Rainbow Outfit" (pestana Tools): cambia los colores del
---     outfit (cabeza, cuerpo, piernas, pies) en modo Arcoiris, Escalonado
---     o Aleatorio. Intervalo minimo 500 ms (por defecto 1000) para no
---     saturar al servidor. Espera 1.5 s tras cada cambio de equipo del
---     EquipCore para no confundir su deteccion de "exhausted". Si el
---     servidor responde "exhausted" al cambio de outfit, sube solo el
---     intervalo. Al apagarlo devuelve tus colores originales.
---
---  CAMBIOS v62
---   - Equipo Auto: 3 modos (PK -> PVP -> CAVE), cada uno con su propio set
---     de Ataque y Defensa. Se acabo cambiar items a mano al cambiar de modo.
---     PK y CAVE comparten los valores de vida y AMBOS ponen defensa si hay
---     un PK en pantalla. PVP usa sus propios valores. Quitado el modo WAR.
---     La ventana principal edita el set PK; el boton "Sets CAVE / PVP" abre
---     la ventana para editar esos dos (alternar con su boton).
---
---  CAMBIOS v61
---   - Corregido el error "attempt to perform arithmetic on global lastStep":
---     faltaba declarar lastStep (y wcTarget/lostAt) en el War Chase al
---     restaurarlo. Ya no salen errores en rojo.
---
---  CAMBIOS v60
---   - War Chase: en el MISMO piso ya NO activa follow (que estorbaba los
---     golpes). Solo chase + ataque + paso adelante, asi PEGA los hits. El
---     follow solo se usa para CRUZAR escaleras/gradas al cambiar de piso.
---
---  CAMBIOS v59
---   - War Chase: la gracia tras perder al enemigo bajo de 2.5s a 1.5s,
---     asi reacciona mas rapido cuando es muerte y no se pone "loquito".
---
---  CAMBIOS v58 (sobre el War Chase que seguia por todos lados)
---   - War Chase: al morir/matar/desaparecer el enemigo, suelta el objetivo
---     y ya NO regresa solo al ultimo lugar (sirve tambien en arena, donde
---     no sale mensaje de muerte).
---   - War Chase: adelanta 1 sqm hacia el enemigo para seguirlo de
---     inmediato, hacia cualquier direccion. (El seguimiento por pisos no
---     se toco.)
---
---  CAMBIOS v54
---   - War Chase: al dejar de atacar ya NO sigue moviendote como cavebot.
---     Ahora limpia bien el objetivo del follow cuando sueltas el ataque,
---     cambias a STOP o dejas de tener enemigo.
---
---  CAMBIOS v53
---   - Exani Hur: AHORA SI detecta la orilla. Antes el codigo de "orilla"
---     no se habia aplicado y por eso no bajaba. Orilla/lava -> down,
---     pared solida -> up. Automatico, con comillas.
---
---  CAMBIOS v52 (base restaurada de v47, que seguia bien)
---   - War Chase CON PISOS unificado con el motor del Auto Follow MC.
---   - War Chase CON PISOS unificado con el motor del Auto Follow MC: marca
---     al enemigo desde que atacas y lo sigue por gradas/escaleras igual.
---
---  CAMBIOS v47
---   - Follow MC: tras abrir una puerta vuelve a seguir casi al instante
---     (antes tardaba 5-8 s).
---   - Exani Hur: ya no alterna up/down al azar. Prueba primero el lado
---     correcto ("down" por defecto, configurable). Si sale "not possible"
---     prueba el otro lado; si sale "exhausted" reintenta el mismo. Asi
---     baja en los huecos de bajar.
---
---  CAMBIOS v46
---   - Follow MC: reacciona mucho mas rapido al cambiar de piso. Guarda tu
---     posicion cada 20 ms (antes podia perderla y arrancaba tarde, a 5-10
---     sqm). El seguimiento corre cada 50 ms en vez de 100.
---
---  CAMBIOS v45
---   - Follow MC: reintenta el seguimiento justo despues de cada cambio de
---     piso (al bajar/subir), con varios intentos escalonados, igual que el
---     script Sabuezo. Antes se quedaba quieto tras bajar porque no
---     reintentaba en el momento justo.
---
---  CAMBIOS v44
---   - Exani Hur auto: si topas con una PUERTA, la ABRE en vez de tirar
---     exani hur. Solo levita si enfrente hay una pared de verdad (no
---     puerta). Asi corres y las puertas se abren solas.
---   - Exani Hur auto: si el cliente no ve el otro piso, igual intenta
---     levitar (alterna up/down) en vez de quedarse quieto.
---
---  CAMBIOS v43
---   - Follow MC: ahora ABRE PUERTAS (por ID) en el camino y en la
---     transicion de piso. Baja alcantarillas (ya funcionaba). Mejor
---     persistencia tras bajar.
---
---  CAMBIOS v42
---   - Boost (exura boost): ya NO se lo tira a cualquiera ni a la friend
---     list. Solo a los de tu GUILD (emblema) y a los nombres que escribes
---     a mano en "Amigos por nombre" (ej. el poteador).
---   - Correccion: la deteccion de guild usaba un emblema que incluia a
---     jugadores sin relacion; ahora usa solo el emblema de aliado.
---
---  CAMBIOS v41
---   - Follow MC: ahora SI persigue despues de que el compañero sube/baja.
---     Recuerda la ultima posicion vista aunque este lejos, y al perderlo
---     camina a esa posicion y usa la escalera/alcantarilla/rope de ahi.
---
---  CAMBIOS v40
---   - Follow MC / War Chase: ahora reconoce huecos de pala (alcantarillas),
---     rope spots y escaleras por su ID (lista del Sabuezo), asi baja
---     alcantarillas y sube por cuerda. Necesitas pala y cuerda en mochila.
---
---  CAMBIOS v39
---   - Auto Follow MC / War Chase CON PISOS: ahora SI intenta subir
---     escaleras y gradas. Camina al sqm donde el compañero cambio de piso
---     con varios metodos (CaveBot.walkTo, autoWalk, player:autoWalk,
---     findPath) y al llegar pisa la grada o usa la escalera/rope/agujero.
---     Antes se quedaba quieto si no tenias cavebot cargado.
---
---  CAMBIOS v38
---   - Quitado el "Auto Haste" (utani hur) que no era funcional.
---   - Ventanas mas anchas y campos (SpinBox de %) mas grandes y
---     separados, para poder tocarlos y cambiar los numeros sin que se
---     edite el texto del hechizo. Sin cambiar ninguna funcion.
---
---  CAMBIOS v37
---   - NUEVO motor de follow con pisos (adaptado de un script que si sube
---     gradas): recuerda la ultima posicion vista y usa escalera/rope/pala/
---     grada/puerta en ese sqm. No lee mapas de otros pisos.
---   - "Auto Follow MC" (pestana Tools): sigue a una COLA de nombres; si
---     matan/pierde a uno, pasa al siguiente. Sube gradas/escaleras.
---   - War Chase "CON PISOS" ahora usa ese motor para seguir al enemigo.
---
---  CAMBIOS v36
---   - NUEVO "Auto Follow" (pestana Tools): prueba del follow del juego
---     para seguir a un compañero (base para el MC). Sirve para comprobar
---     si el follow sube/baja gradas en tu servidor.
---
---  CAMBIOS v35
---   - War Chase "CON PISOS" rehecho: ahora usa el FOLLOW del juego (como
---     el follow manual que sube gradas/escaleras). Tu atacas; al cambiar
---     el objetivo de piso el bot hace follow un momento para cruzarlo y
---     vuelve a atacar. Sin leer el mapa: no traba.
---
---  CAMBIOS v34
---   - War Chase: ya no traba el cliente. El seguimiento por pisos ya no
---     lee tiles de otros pisos en bucle (eso trababa 2-3 s), y el paso
---     usa findPath como mucho cada 400 ms (antes cada 100). Intervalo del
---     macro subido a 150 ms.
---
---  CAMBIOS v33
---   - War Chase "CON PISOS": ahora distingue GRADAS (se suben pisando:
---     camina al sqm) de ESCALERAS/AGUJEROS (se usan) y ROPE (usa cuerda).
---     Antes intentaba "usar" las gradas y por eso no subia.
---
---  CAMBIOS v32
---   - Rendimiento al loguear: los 26 macros ya no arrancan todos de
---     golpe. Ahora se reparten en el tiempo y esperan 1.5 s tras
---     loguear, para que no se trabe el cliente ni suba el ping al
---     encender el bot o entrar.
---
---  CAMBIOS v31
---   - War Chase (PvP): ahora tiene 3 modos en un boton (NORMAL -> CON
---     PISOS -> STOP). "CON PISOS" sigue al jugador que atacas cuando
---     cambia de piso (escaleras, rampas, rope, agujeros), con opcion de
---     no seguir si hay 2+ PKs en el piso destino.
---
---  CAMBIOS v30b
---   - Exani Hur: arreglado "attempt to call global 'levitate'". Faltaba
---     la funcion levitate al rehacer el archivo; ya esta.
---
---  CAMBIOS v30
---   - Exani Hur: el modo automatico volvio a funcionar. Ya no depende de
---     interceptar la funcion de caminar; detecta el choque cuando estas
---     quieto mirando una pared donde se puede levitar.
---
---  CAMBIOS v29
---   - Party Support: ayuda tambien a los de tu GUILD (por el emblema).
---     Ventanas mas chicas (caben sin achicar la pantalla): la principal
---     (a quien, vida, mana, seguridad) y "Hechizos y boost" (exura sio y
---     BOOST por turnos, ej: exura boost "{name}", recordando a quien ya
---     se lo dio).
---   - Exani Hur: ya no sale "exhausted" con utani tempo hur / utito
---     tempo: queda en cola, aparta el turno y se lanza apenas se pueda.
---
---  CAMBIOS v28
---   - NUEVO "Exani Hur" (pestana Tools): boton "Levitar" que elige solo
---     arriba o abajo segun el sqm de enfrente, botones ARRIBA/ABAJO en
---     Config, y modo automatico al chocar UNA vez contra una pared
---     (funciona con el keypad del celular).
---
---  CAMBIOS v27
---   - Alarma PK: aviso (sonido + Telegram) cuando se CONECTA alguno de
---     los nombres VIP que escribas. Funciona con la ventana VIP cerrada.
---   - Alarma PK: la configuracion (token, chat id, VIP, sonido, Probar)
---     ahora esta en una ventana con el boton "Config".
---
---  CAMBIOS v26
---   - Dynamic Lure: ignora mascotas e invocaciones, y los nombres de
---     "Monstruos a ignorar" sin importar el [Lvl.xx] (ej: Alebrije).
---     Si esta atacando a uno ignorado, cancela el ataque. "Alebrije"
---     se agrega solo a la lista. Attack Bot tampoco lo cuenta.
---
---  CAMBIOS v25
---   - Equipo Auto: nuevo Modo PVP con SUS PROPIOS sets (boton "Sets PvP"
---     en la ventana): Ataque PvP / Defensa PvP. Cambia SOLO por % de vida
---     (no reacciona a PKs).
---   - Deteccion de PK: ya no cuenta a los de tu misma guild (emblema
---     verde / miembro) ni a los de la lista de amigos de vBot.
---     Modo: WAR -> CAVE -> PK -> PVP.
---
---  CAMBIOS v24
---   - NUEVO "Exiva en minimapa" (pestana Tools): lee los mensajes de
---     exiva y pone una bandera en la zona aproximada del jugador.
---     Con varios exivas desde lugares distintos cruza las zonas.
---     Al cambiar de piso (caminando o con las flechas del minimapa)
---     la bandera se mueve sola al piso que muestra el minimapa y dice
---     en que piso esta realmente el jugador.
---
---  CAMBIOS v23
---   - Dynamic Lure: boton "Objetivo" en Config para elegir a quien
---     ataca de los monstruos pegados: el de MAS vida, el de MENOS vida
---     o el MAS cercano. No cambia de objetivo por menos de 10% de vida.
---   - Auto Haste: ahora tiene boton Config con su ventana (hechizo,
---     mana minima, pausa entre intentos) como los demas scripts.
---     No lanza en PZ (revisa el sqm ademas del icono) ni estando quieto
---     (opcion "Solo si me estoy moviendo", activada).
---
---  CAMBIOS v22
---   - NUEVO "Auto Haste" (pestana Tools): reemplaza al haste de
---     Conditions. Solo lanza si no tienes haste y respeta el exhaust de
---     soporte (2 s) junto con "Buff de ataque": ya no salen "You are
---     exhausted" por chocar haste + utito tempo.
---   - Buff de ataque: espera el exhaust de soporte antes de lanzar.
---
---  CAMBIOS v21
---   - NUEVO "Auto Comida" (pestana HP), reemplaza al Eat Food de vBot:
---     4 casillas de comida, come solo cuando hace falta, pausa tras
---     "You are full", no come con PK en pantalla, con vida baja ni justo
---     despues de una pocion. Apaga el Eat Food de vBot (opcional).
---
---  CAMBIOS v20
---   - Quitado el contador de pociones del Kina War Healer.
---   - Equipo Auto modo PK: no pone defensa por PK estando en PZ.
---   - Alarma PK: no avisa si TU tienes skull, y manda un solo mensaje
---     por PK (no se repite mientras siga en pantalla; vuelve a avisar
---     solo si se fue mas de 5 min y regresa).
---
---  CAMBIOS v19
---   - Equipo Auto: nuevo modo "PK" (boton Modo: WAR -> CAVE -> PK).
---     Usa los valores de HP / caida de WAR y ademas pone el set de
---     defensa si hay en pantalla un jugador con calavera blanca, roja
---     o negra (los de tu party se ignoran). Mantiene la defensa
---     mientras el PK siga en pantalla y "Mantener defensa" despues.
---   - NUEVO "Alarma PK" (pestana HP): sonido cada 3 s mientras haya
---     un PK en pantalla y aviso por Telegram (en el celular vibra y
---     enciende la pantalla). Boton "Probar" para comprobarlo.
---
---  CAMBIOS v18
---   - Cambio de set instantaneo otra vez: la devolucion de la pieza
---     a su mochila ahora espera a que termine el cambio (antes metia
---     movimientos en medio y lo hacia lento). Reintentos mas rapidos.
---   - Sin letras amarillas al cambiar: el estado de Anillo y Amuleto
---     solo avisa de problemas reales (item no encontrado, mochila llena).
---   - Quitado el aviso amarillo "[Equipo] No se pudo poner el ID".
---   - Si el servidor rechaza un movimiento (exhausted / not possible)
---     se reintenta al instante en vez de esperar.
---   - Equipo Auto y Set Pazzur reaccionan en el mismo momento en que
---     cambia la vida (no esperan al siguiente ciclo).
---   - Set de ataque rapido: el cambio del propio script ya no se
---     confunde con un cambio manual (eso bloqueaba piezas).
---   - Orden de cambio: armadura, casco, amuleto, piernas, botas,
---     anillo, ammo, escudo (Equipo Auto y Set Pazzur).
---   - Arreglado el set "a medias": durante el exhaust de pociones el
---     servidor solo guarda el ultimo movimiento. Ahora el set espera
---     a que termine el exhaust y entra todo junto; los healers
---     aguantan la pocion un instante (salvo vida <= 35%).
---   - Todas las piezas igual de rapidas: el servidor solo acepta 1
---     movimiento + 1 en espera. Ahora van 2 piezas en camino y apenas
---     el servidor confirma una sale la siguiente (antes armadura y
---     casco entraban rapido y el resto esperaba reintentos).
---   - Kina War Healer: contador de pociones debajo del panel (vida,
---     Inmortal, Recovery, Adrenalina). Cuenta tambien las de mochilas
---     cerradas (usa el total que manda el servidor al usar una).
---     Solo lee, no toca el healer.
---   - El cambio es UN solo movimiento directo (como antes): ya no
---     prueba equipar por hotkey ni desequipar primero, que hacia
---     "desequipa y equipa" y perdia tiempo.
---
---  CAMBIOS v17
---   - Equipo: la pieza que se quita al cambiar de set vuelve a la
---     MISMA mochila de donde salio su reemplazo (antes quedaba en
---     cualquier bp). Opcion "Devolver la pieza quitada a la mochila
---     del reemplazo" en Anillo y Amuleto, Equipo Auto y Set Pazzur
---     (es la misma opcion para los tres, viene activada).
---   - v15/v16: arreglado el error "trim (a nil value)" de Pazzur.
---
---  CAMBIOS v14  (scripts de Pazzur, con ventana como los demas)
---   - Main: "Auto Cast + Unban" (comando, intervalo, desbaneo de
---     espectadores con espera y opcion solo anonimos).
---   - Main: "Auto Bank" (deposita al activar/entrar y cada X min,
---     boton "Depositar ahora").
---   - Main: "Auto Stamina" (item, horas minimas, pausa entre usos).
---   - HP: "Set Pazzur (Atq/Def)" = Smart War HP + Set Defensa juntos.
---     Modo INTELIGENTE (HP / caida brusca) o SOLO DEFENSA.
---     Se pausa solo si "Equipo Auto" esta activo.
---   - HP: "Kina War Healer" (pociones especiales por rango con
---     prioridad corta + pocion de vida + ultimate/exana gran mort/
---     exana mort). Se pausa solo si "War Healer" esta activo.
---
---  CAMBIOS v13
---   - NUEVO "Attack Bot" (pestana Cave): hasta 6 ataques en orden de
---     prioridad. Tipos: Hechizo al objetivo, Area alrededor tuyo, Runa
---     al objetivo y Runa de area alrededor del objetivo. Con minimo de
---     monstruos, rango, cooldown y mana minima por fila.
---     Presets para Knight, Paladin, Sorcerer y Druid (boton "Cargar
---     preset" o "Aplicar perfil" en Main). No usa area si hay otros
---     jugadores en pantalla (opcional) y nunca en PZ.
---
---  CAMBIOS v12  (ahora sirve para TODAS las profesiones)
---   - NUEVO "Profesion" (arriba en Main): detecta Knight, Paladin,
---     Sorcerer, Druid o Monk (o la eliges a mano con "Cambiar").
---     "Aplicar perfil" pone los hechizos y opciones de esa profesion
---     en los scripts (pide confirmar con un segundo clic). No cambia
---     nada solo: tu configuracion queda igual hasta que lo pulses.
---   - War Healer: preset de curacion por profesion. Ya no choca con el
---     hechizo de curar amigos del Party Support.
---   - Utito Tempo pasa a "Buff de ataque": utito tempo (Knight) o
---     utito tempo san (Paladin). En magos se apaga al aplicar perfil.
---   - War Chase: Knight/Monk persiguen pegados; Paladin y magos
---     mantienen distancia y solo se acercan si el objetivo se aleja.
---   - Dynamic Lure: opcion "Seguir al monstruo (chase)". En automatico
---     solo Knight/Monk usan chase; los de distancia no se pegan.
---   - EK Support pasa a "Party Support": ademas de UH y pocion de
---     mana, cura amigos con hechizo (ej: exura sio para Druid).
---
---  CAMBIOS v11
---   - Dynamic Lure: ahora tiene ventana de Config (rango, cuantos mobs
---     para parar y para seguir, frenado del cavebot, monstruos a
---     ignorar, atacar sin cavebot...) con boton "Valores por defecto",
---     interruptor "Activar / Desactivar" y linea de estado (lureando,
---     peleando, grupo no alcanzable, cavebot apagado...).
---     OJO: el interruptor es nuevo, hay que activarlo una vez.
---
---  CAMBIOS v10
---   - War Healer: 2 pociones de vida (ej: la de lvl 1000 + la normal),
---     si se acaba una usa la otra. Mana minima por hechizo.
---     Anti-paralyze opcional. El estado dice que esta usando.
---   - Utito Tempo: ahora tiene ventana (palabras, duracion, mana minima,
---     solo en combate, pausa con HP bajo) y estado con cuenta atras.
---   - EK Support: los nombres de la lista se ayudan siempre (antes "Solo
---     party" los bloqueaba), party detectada tambien por escudo, runa por
---     hotkey si no esta en mochila abierta, y el estado dice por que no
---     cura (lejos, sin vision, tu HP bajo, mana no visible...).
---
---  CAMBIOS v9
---   - ELIMINADOS: Auto Cast, Auto Unban, Auto Deposit y Auto Stamina.
---   - Todas las ventanas rediseniadas: titulos por seccion, separadores,
---     textos de ayuda, etiquetas con ancho correcto (antes algunas se
---     cortaban o dejaban los SpinBox encima del texto).
---   - Cada ventana tiene ahora su boton "Activar / Desactivar" y una
---     linea de estado, sincronizados con el interruptor de la pestana.
---   - Panel de cada script en la pestana: interruptor + boton "Config"
---     + linea de estado, todos con el mismo formato.
---   - Encabezados en cada pestana para ubicar cada grupo de scripts.
---   - Anti-Push: el cambio de platinum/crystal ahora solo usa pilas de
---     menos de 100 (una pila de 100 se convertia a la moneda MAYOR).
---
---  INDICE
---   0. MAIN  - Profesion (perfil para todas las vocaciones)
---   1. MAIN  - Exercise Trainer (ventana + auto dummy)
---   2. MAIN  - Smart Imbue (ventana, + escudo y backpack)
---   3. HP    - War Healer (ventana)
---              Anillo y Amuleto (ventana, UNICO script de anillo/SSA)
---              Equipo Auto (ventana, set completo, modos WAR/CAVE/PK/PVP)
---   4. TOOLS - Buff de ataque (ventana), War Chase PvP (3 modos), Autosell
---   5. CAVE  - Dynamic Lure (ventana)
---   6. HP    - Party Support (UH, mana y hechizo para amigos)
---   7. TOOLS - Safe Anti-Push (monedas / comida)
---   8. CAVE  - Attack Bot (todas las profesiones)
---   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
---  10. HP    - PAZZUR: Set Ataque/Defensa, War Healer Pazzur, Alarma PK
---  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
---  13. TOOLS - Exiva en el minimapa
---  14. TOOLS - Exani Hur (levitar arriba / abajo)
---  15. TOOLS - Auto Follow MC (cola de nombres, sube gradas/escaleras)
---  16. TOOLS - Rainbow Outfit (colores del outfit en arcoiris)
+--  INDICE  (pestana - script)
+--   MAIN   - 0. Profesion | 1. Exercise Trainer | 2. Smart Imbue
+--            9. Pazzur: Auto Cast + Unban, Auto Bank, Auto Stamina
+--   HP     - 3. War Healer | 6. Party Support | 10. War Healer Pazzur
+--            11. Auto Comida
+--   EQUIPO - 3. Anillo y Amuleto, Equipo Auto | 10. Set Pazzur
+--   CAVE   - 4. Buff de ataque, Autosell | 5. Dynamic Lure, Auto Loot
+--            7. Anti-Push | 8. Attack Bot
+--   PVP    - 4. War Chase | 10. Alarma PK | 12. Exiva | 13. Exani Hur
+--            14. Auto Follow MC
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -597,9 +249,22 @@ local Shared = {
   lastSupport    = -1000000,
   supportBlock   = 0,
   supportReserve = 0,   -- Exani Hur "aparta" el turno: los demas esperan
-  lastEquipMove  = -1000000,   -- ultimo movimiento del EquipCore (Rainbow espera)
 }
 local SUPPORT_GAP = 2000
+
+-- Un solo "trim" para todos los scripts (antes habia 9 copias)
+local function trim(s) return (tostring(s or "")):match("^%s*(.-)%s*$") end
+
+-- Un solo lector de mensajes del servidor para todos los scripts
+-- (antes cada script registraba el suyo: 8 lectores). Si un script
+-- falla al leer un mensaje, los demas lo siguen recibiendo.
+local __textHandlers = {}
+function Shared.onText(fn) table.insert(__textHandlers, fn) end
+pcall(function()
+  onTextMessage(function(...)
+    for _, fn in ipairs(__textHandlers) do pcall(fn, ...) end
+  end)
+end)
 -- ignoreReserve = true solo lo usa quien hizo la reserva (Exani Hur)
 function Shared.supportReady(ignoreReserve)
   if not ignoreReserve and now < (Shared.supportReserve or 0) then return false end
@@ -694,7 +359,7 @@ local EquipCore = {}
 do
   -- RETRY_MS: espera antes de reenviar si el servidor no respondio.
   -- Si el servidor RECHAZA el movimiento (exhausted / not possible)
-  -- se reenvia al instante (ver onTextMessage mas abajo).
+  -- se reenvia al instante (ver Shared.onText mas abajo).
   local RETRY_MS, HOTKEY_RETRY, HOTKEY_MAX = 400, 800, 2
   local REJECT_RETRY = 60
   -- EXHAUST DE POCIONES: mientras dura, el servidor guarda SOLO el
@@ -946,7 +611,6 @@ do
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
       lastAction = now
-      Shared.lastEquipMove = now
 
       local srcCid = containerOf(item)
       if EquipCore.keepBag() and srcCid and cur and prevId > 0
@@ -974,7 +638,6 @@ do
       if ok then
         hotkeyTries[id] = {n = (ht and ht.n or 0) + 1, t = now}
         lastAction = now
-        Shared.lastEquipMove = now
         pending[slot] = {id = id, t = now, prevId = prevId}
         ownMove[slot] = now
         nextTry[slot] = now + HOTKEY_RETRY
@@ -991,7 +654,7 @@ do
   -- Si el servidor rechaza un movimiento, reintentar YA (no esperar
   -- RETRY_MS). Solo afecta a slots con un cambio en curso.
   pcall(function()
-    onTextMessage(function(mode, text)
+    Shared.onText(function(mode, text)
       local t = (text or ""):lower()
       -- Pociones usadas por cualquier lado (hotkey, otro script)
       if t:find("^using one of") or t:find("^using the last")
@@ -1744,7 +1407,7 @@ onUseWith(function(p, itemId, target, subType)
   if win:isVisible() then refreshDummyList() end
 end)
 
-onTextMessage(function(mode, text)
+Shared.onText(function(mode, text)
   if not et.enabled or not st.training or not text then return end
   local t = text:lower()
   if (t:find("training") or t:find("entrena")) and
@@ -2161,7 +1824,6 @@ local mainUI = UIx.scriptPanel("Smart Imbue")
 local win = UI.createWindow('SmartImbueWindow', rootWidget)
 win:hide()
 
-local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
 local rows = {}
 
@@ -2493,7 +2155,7 @@ macro(200, function()
   end
 end)
 
-onTextMessage(function(mode, text)
+Shared.onText(function(mode, text)
   if not cfg.enabled or not text then return end
 
   if pendingLook then
@@ -2524,7 +2186,7 @@ endSection(__sec)
 __sec = startSection("HP")
 do
 setDefaultTab("HP")
-UIx.header("CURACION Y EQUIPO")
+UIx.header("CURACION")
 
 -- ============================================================
 -- WAR HEALER
@@ -2855,7 +2517,6 @@ WarHealerWindow < MainWindow
   local hWin = UI.createWindow('WarHealerWindow', rootWidget)
   hWin:hide()
 
-  local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
   local lastHStatus, lastActionAt = "", -1000000
   local function setHStatus(text, color)
@@ -3079,6 +2740,11 @@ WarHealerWindow < MainWindow
     if now - lastActionAt > 2000 then setHStatus("Activo", "#66ff66") end
   end)
 end
+
+-- Anillo y Amuleto y Equipo Auto van en la pestana "Equipo"
+endSection(__sec)
+__sec = startSection("Equipo")
+UIx.header("EQUIPO")
 
 -- ============================================================
 -- ANILLO Y AMULETO  (UNICO script de anillo + SSA)
@@ -4240,12 +3906,12 @@ end -- fin: 3. HP
 endSection(__sec)
 
 -- #####################################################################
--- 4. TOOLS - Utito, War Chase, Autosell
+-- 4. CAVE / PVP - Buff de ataque y Autosell (Cave), War Chase (PvP)
 -- #####################################################################
-__sec = startSection("Tools")
+__sec = startSection("Cave")
 do
-setDefaultTab("Tools")
-UIx.header("COMBATE Y UTILIDADES")
+setDefaultTab("Cave")
+UIx.header("BUFF DE ATAQUE Y AUTOSELL")
 
 -- ------------------------------------------------------------
 -- BUFF DE ATAQUE (antes "Utito Tempo", con ventana)
@@ -4436,7 +4102,6 @@ UtitoWindow < MainWindow
   local uWin = UI.createWindow('UtitoWindow', rootWidget)
   uWin:hide()
 
-  local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
   local lastUStatus = ""
   local function setUStatus(text, color)
@@ -4554,6 +4219,9 @@ UtitoWindow < MainWindow
     setUStatus("Lanzando " .. words, "#88ff88")
   end)
 end
+
+endSection(__sec)
+__sec = startSection("PvP")
 
 -- ------------------------------------------------------------
 -- WAR CHASE (PvP) - 3 modos
@@ -4697,6 +4365,10 @@ do
     end
   end)
 end
+
+endSection(__sec)
+__sec = startSection("Cave")
+
 -- ------------------------------------------------------------
 -- AUTOSELL (cada 60 s, tambien en combate)
 -- ------------------------------------------------------------
@@ -4721,7 +4393,7 @@ end -- fin: 4. TOOLS
 endSection(__sec)
 
 -- #####################################################################
--- 5. CAVE - Dynamic Lure (con ventana)
+-- 5. CAVE - Dynamic Lure (con ventana) + Auto Loot
 --  - Mientras haya MENOS mobs que "Parar con", el cavebot sigue
 --    caminando despacio (frenadas cortas) para juntar mas (lure).
 --  - Al llegar a "Parar con" mobs alcanzables, frena el cavebot y
@@ -4773,7 +4445,7 @@ do
   g_ui.loadUIFromString([[
 DynamicLureWindow < MainWindow
   !text: tr('Dynamic Lure')
-  size: 420 700
+  size: 420 440
   @onEscape: self:hide()
 
   VbTitle
@@ -4910,11 +4582,63 @@ DynamicLureWindow < MainWindow
     anchors.right: parent.right
     margin-top: 10
 
-  VbTitle
-    id: tAdv
+  Button
+    id: advBtn
     anchors.top: sep2.bottom
     anchors.left: parent.left
-    margin-top: 6
+    anchors.right: parent.right
+    margin-top: 8
+    height: 24
+    text: Avanzado y monstruos a ignorar...
+
+  HorizontalSeparator
+    id: sepBottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: status.top
+    margin-bottom: 4
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: resetBtn
+    anchors.bottom: parent.bottom
+    anchors.left: enableBtn.right
+    margin-left: 6
+    width: 120
+    text: Valores por defecto
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  g_ui.loadUIFromString([[
+DynamicLureAdvWindow < MainWindow
+  !text: tr('Dynamic Lure - Avanzado')
+  size: 420 360
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tAdv
+    anchors.top: parent.top
+    anchors.left: parent.left
     text: Avanzado
 
   Label
@@ -5007,36 +4731,6 @@ DynamicLureWindow < MainWindow
     margin-top: 4
     text: Nombres separados por coma. No se cuentan ni se atacan. Lo que va entre [ ] se ignora (Alebrije [Lvl.xx] = Alebrije). Mascotas e invocaciones se ignoran solas.
 
-  HorizontalSeparator
-    id: sepBottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: status.top
-    margin-bottom: 4
-
-  VbStatus
-    id: status
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: enableBtn.top
-    margin-bottom: 6
-    text: Inactivo
-
-  Button
-    id: enableBtn
-    anchors.bottom: parent.bottom
-    anchors.left: parent.left
-    width: 90
-    text: Activar
-
-  Button
-    id: resetBtn
-    anchors.bottom: parent.bottom
-    anchors.left: enableBtn.right
-    margin-left: 6
-    width: 120
-    text: Valores por defecto
-
   Button
     id: closeBtn
     anchors.bottom: parent.bottom
@@ -5048,6 +4742,16 @@ DynamicLureWindow < MainWindow
   local lUI = UIx.scriptPanel("Dynamic Lure")
   local lWin = UI.createWindow('DynamicLureWindow', rootWidget)
   lWin:hide()
+  -- Ventana "Avanzado": sus casillas se enlazan como si estuvieran en la
+  -- ventana principal (el resto del codigo no cambia).
+  local aWin = UI.createWindow('DynamicLureAdvWindow', rootWidget)
+  aWin:hide()
+  for _, id in ipairs({"blockedTimeout", "maxPathChecks", "attackWithoutCaveBot",
+                       "useChase", "targetMode", "ignoreNames"}) do
+    lWin[id] = aWin[id]
+  end
+  lWin.advBtn.onClick = function() UIx.toggleWindow(aWin) end
+  aWin.closeBtn.onClick = function() aWin:hide() end
 
   local lastLStatus = ""
   local function setLStatus(text, color)
@@ -5111,7 +4815,7 @@ DynamicLureWindow < MainWindow
     lc.useChase = nil
     loadWindow()
   end
-  lWin.closeBtn.onClick = function() lWin:hide() end
+  lWin.closeBtn.onClick = function() lWin:hide(); aWin:hide() end
   lUI.setupBtn.onClick = function() UIx.toggleWindow(lWin, loadWindow) end
 
   -- Logica
@@ -5327,6 +5031,572 @@ DynamicLureWindow < MainWindow
         g_game.cancelAttack()
       end
     end
+  end)
+end
+
+-- ============================================================
+-- AUTO LOOT (junto al Dynamic Lure)
+--  - Cuando muere un monstruo cerca, abre su cuerpo y mueve a tu BP
+--    de loot los items de la lista (igual que la lista del Target).
+--  - "Recoger TODO": abre el cuerpo y saca todo lo que tenga.
+--  - Monedas siempre (gold, platinum, crystal), opcional.
+--  - Mobs que NO se lootean (nombres separados por coma).
+--  - Si la BP de loot se llena, abre la siguiente BP igual que este
+--    dentro de ella.
+--  - Seguridad: distancia maxima al cuerpo, esperar si hay mobs cerca,
+--    cap minima, pausa con PK en pantalla.
+--  - Mientras abre y saca el loot, frena el CaveBot un momento.
+--  IMPORTANTE: apaga el "Looting" del TargetBot de vBot para que no
+--  looteen los dos a la vez.
+-- ============================================================
+do
+  local AK = "autoLootV1"
+  local COINS = {3031, 3035, 3043}   -- gold, platinum, crystal coin
+  local DEF = {
+    enabled = false, bpId = 0, items = {}, lootAll = false, coins = true,
+    skipNames = "", maxDist = 6, waitMobs = 0, minCap = 0,
+    onlyMine = false, pausePk = true, closeCorpse = true,
+  }
+  if type(storage[AK]) ~= "table" then storage[AK] = {} end
+  local ac = storage[AK]
+  for k, v in pairs(DEF) do if ac[k] == nil then ac[k] = v end end
+
+  g_ui.loadUIFromString([[
+AutoLootWindow < MainWindow
+  !text: tr('Auto Loot')
+  size: 420 640
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tBp
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Donde guardar
+
+  BotItem
+    id: bpItem
+    anchors.top: tBp.bottom
+    anchors.left: parent.left
+    margin-top: 4
+
+  VbHint
+    id: hBp
+    anchors.top: bpItem.top
+    anchors.left: bpItem.right
+    anchors.right: parent.right
+    margin-left: 8
+    text: Arrastra aqui tu mochila de loot. Si se llena, abre la siguiente igual que este dentro. Vacio = cualquier mochila abierta con espacio.
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: bpItem.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
+
+  VbTitle
+    id: tItems
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Que lootear
+
+  CheckBox
+    id: lootAll
+    anchors.top: tItems.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Abrir el cuerpo y recoger TODO (ignora la lista)
+
+  BotContainer
+    id: items
+    anchors.top: lootAll.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    height: 72
+
+  CheckBox
+    id: coins
+    anchors.top: items.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Siempre recoger monedas (gold, platinum, crystal)
+
+  HorizontalSeparator
+    id: sep2
+    anchors.top: coins.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  VbTitle
+    id: tSkip
+    anchors.top: sep2.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: No lootear estos mobs
+
+  TextEdit
+    id: skipNames
+    anchors.top: tSkip.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    height: 22
+    !tooltip: tr('Ej: rat, cave rat, bug')
+
+  VbHint
+    id: hSkip
+    anchors.top: skipNames.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 4
+    text: Nombres separados por coma. Lo que va entre [ ] se ignora.
+
+  HorizontalSeparator
+    id: sep3
+    anchors.top: hSkip.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  VbTitle
+    id: tOpts
+    anchors.top: sep3.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Opciones
+
+  Label
+    id: lDist
+    anchors.top: tOpts.bottom
+    anchors.left: parent.left
+    margin-top: 10
+    width: 270
+    text: Distancia maxima al cuerpo (sqm)
+
+  SpinBox
+    id: maxDist
+    anchors.verticalCenter: lDist.verticalCenter
+    anchors.left: lDist.right
+    width: 50
+    minimum: 1
+    maximum: 10
+
+  Label
+    id: lWait
+    anchors.top: lDist.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 270
+    text: Esperar si hay mobs a X sqm (0 = no)
+
+  SpinBox
+    id: waitMobs
+    anchors.verticalCenter: lWait.verticalCenter
+    anchors.left: lWait.right
+    width: 50
+    minimum: 0
+    maximum: 10
+
+  Label
+    id: lCap
+    anchors.top: lWait.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 270
+    text: Cap minima para lootear (0 = no)
+
+  SpinBox
+    id: minCap
+    anchors.verticalCenter: lCap.verticalCenter
+    anchors.left: lCap.right
+    width: 50
+    minimum: 0
+    maximum: 99999
+    step: 50
+
+  CheckBox
+    id: onlyMine
+    anchors.top: lCap.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 12
+    text: Solo los mobs que yo ataque
+
+  CheckBox
+    id: pausePk
+    anchors.top: onlyMine.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Pausar si hay PK en pantalla
+
+  CheckBox
+    id: closeCorpse
+    anchors.top: pausePk.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Cerrar el cuerpo al terminar
+
+  VbHint
+    id: hTb
+    anchors.top: closeCorpse.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Apaga el Looting del TargetBot de vBot para que no looteen los dos a la vez.
+
+  HorizontalSeparator
+    id: sepBottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: status.top
+    margin-bottom: 4
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("AUTO LOOT")
+  local aUI = UIx.scriptPanel("Auto Loot")
+  local aWin = UI.createWindow('AutoLootWindow', rootWidget)
+  aWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(aUI.status, t, c)
+    UIx.setLabel(aWin.status, t, c)
+  end
+
+  -- ----- Ventana -----
+  aWin.bpItem:setItemId(ac.bpId or 0)
+  aWin.bpItem.onItemChange = function(w) ac.bpId = w:getItemId() end
+  local function bindCheck(id)
+    aWin[id]:setChecked(ac[id] == true)
+    aWin[id].onCheckChange = function(w, v) ac[id] = v end
+  end
+  local function bindSpin(id)
+    aWin[id]:setValue(ac[id] or 0)
+    aWin[id].onValueChange = function(w, v) ac[id] = v end
+  end
+  for _, id in ipairs({"lootAll", "coins", "onlyMine", "pausePk", "closeCorpse"}) do bindCheck(id) end
+  for _, id in ipairs({"maxDist", "waitMobs", "minCap"}) do bindSpin(id) end
+  aWin.skipNames:setText(ac.skipNames or "")
+  aWin.skipNames.onTextChange = function(w, t) ac.skipNames = t end
+
+  -- Lista de items (igual que la del Target de vBot). Se guardan los IDs.
+  local listOk = pcall(function()
+    UI.Container(function(widget, items)
+      local ids = {}
+      for _, it in ipairs(items or {}) do
+        local id = type(it) == "table" and it.id or it
+        if type(id) == "number" and id > 0 then table.insert(ids, id) end
+      end
+      ac.items = ids
+    end, true, nil, aWin.items)
+    aWin.items:setItems(ac.items or {})
+  end)
+
+  aWin.closeBtn.onClick = function() aWin:hide() end
+  aUI.setupBtn.onClick = function() UIx.toggleWindow(aWin) end
+  UIx.bindSwitch(ac, aUI.switch, aWin.enableBtn, function(v)
+    if v then
+      setSt(listOk and "Activo" or "Activo (lista no disponible: usa Recoger TODO)", "#66ff66")
+    else
+      setSt("Inactivo", "#888888")
+    end
+  end)
+
+  -- ----- Ayudas -----
+  local NEVER = -1000000
+  local function dist(a, b)
+    if not a or not b or a.z ~= b.z then return 99 end
+    return math.max(math.abs(a.x - b.x), math.abs(a.y - b.y))
+  end
+  local function posKey(p) return p.x .. "," .. p.y .. "," .. p.z end
+  local function cCount(c) return c.getItemsCount and c:getItemsCount() or #c:getItems() end
+  local function hasRoom(c)
+    local cap = c.getCapacity and c:getCapacity() or 0
+    return cap > cCount(c)
+  end
+  local function myCap()
+    local ok, v = pcall(function() return freecap() end)
+    return (ok and type(v) == "number") and v or 99999
+  end
+
+  local skipText, skipSet = nil, {}
+  local function skipped(name)
+    local txt = ac.skipNames or ""
+    if txt ~= skipText then
+      skipText, skipSet = txt, {}
+      for n in txt:gmatch("[^,]+") do
+        local b = Shared.baseName(n)
+        if b ~= "" then skipSet[b] = true end
+      end
+    end
+    return skipSet[Shared.baseName(name)] == true
+  end
+
+  local function wantedSet()
+    local set = {}
+    for _, id in ipairs(ac.items or {}) do set[id] = true end
+    if ac.coins then for _, id in ipairs(COINS) do set[id] = true end end
+    return set
+  end
+
+  -- ----- Muertes: cola de cuerpos por lootear -----
+  local queue = {}          -- {pos, name, at}
+  local seenDead = {}       -- [creatureId] = at
+  local attacked = {}       -- [creatureId] = ultima vez que lo ataque
+  local looted = {}         -- [posKey:corpseId] = at
+
+  local function onDeath(cr)
+    if not ac.enabled then return end
+    local ok, isMob = pcall(function() return cr:isMonster() end)
+    if not ok or not isMob then return end
+    local id = cr:getId()
+    if seenDead[id] then return end
+    seenDead[id] = now
+    if Shared.isSummon(cr) then return end
+    local name = cr:getName() or ""
+    if skipped(name) then return end
+    if ac.onlyMine and now - (attacked[id] or NEVER) > 15000 then return end
+    local p = cr:getPosition()
+    local me = player:getPosition()
+    if not p or dist(me, p) > (ac.maxDist or 6) + 2 then return end
+    table.insert(queue, {pos = {x = p.x, y = p.y, z = p.z}, name = name, at = now})
+  end
+
+  pcall(function()
+    onCreatureHealthPercentChange(function(cr, hp)
+      if hp == 0 then pcall(onDeath, cr) end
+    end)
+  end)
+
+  -- ----- Cuerpo actual -----
+  local cur = nil           -- {pos, corpseId, openAt, tries, before, cid, waitUntil, lastCount}
+  local lastOpenBp, capBlockUntil = NEVER, NEVER
+
+  local function finish(markLooted)
+    if cur then
+      if markLooted and cur.corpseId then looted[posKey(cur.pos) .. ":" .. cur.corpseId] = now end
+      if cur.cid and ac.closeCorpse then
+        local c = g_game.getContainer(cur.cid)
+        if c then pcall(function() g_game.close(c) end) end
+      end
+    end
+    cur = nil
+  end
+
+  -- Mensajes del servidor sobre el loot
+  Shared.onText(function(mode, text)
+    if not cur then return end
+    local t = (text or ""):lower()
+    if t:find("not the owner") or t:find("no eres el due") then
+      finish(true)
+    elseif t:find("too heavy") or t:find("demasiado pesad") then
+      capBlockUntil = now + 10000
+      finish(false)
+    end
+  end)
+
+  -- Busca el cuerpo (contenedor) en el sqm donde murio el mob
+  local function corpseAt(pos)
+    local tile = g_map.getTile(pos)
+    if not tile then return nil end
+    local items = tile:getItems() or {}
+    for i = #items, 1, -1 do
+      local it = items[i]
+      if it:isContainer() and not looted[posKey(pos) .. ":" .. it:getId()] then
+        local okp, pick = pcall(function() return it:isPickupable() end)
+        if not (okp and pick) then return it end   -- los cuerpos no se levantan
+      end
+    end
+    return nil
+  end
+
+  -- Donde dejar el loot. Devuelve la posicion o nil + motivo.
+  local function lootDest()
+    local bpId = ac.bpId or 0
+    local fullBp
+    for cid, c in pairs(g_game.getContainers()) do
+      if not (cur and cid == cur.cid) then
+        local ci = c.getContainerItem and c:getContainerItem()
+        local iid = ci and ci:getId() or 0
+        local okp, pick = pcall(function() return ci and ci:isPickupable() end)
+        if okp and pick and (bpId == 0 or iid == bpId) then
+          if hasRoom(c) then return c:getSlotPosition(cCount(c)) end
+          if iid == bpId then fullBp = c end
+        end
+      end
+    end
+    if bpId == 0 then return nil, "Sin espacio en mochilas abiertas" end
+    if now - lastOpenBp < 1000 then return nil, "Abriendo BP de loot..." end
+    if fullBp then
+      for _, it in ipairs(fullBp:getItems()) do
+        if it:getId() == bpId then
+          g_game.open(it, fullBp)
+          lastOpenBp = now
+          return nil, "BP llena: abriendo la siguiente"
+        end
+      end
+      return nil, "BP de loot llena"
+    end
+    local it = findItem(bpId)
+    if not it then
+      local back = getInventoryItem(SlotBack)
+      if back and back:getId() == bpId then it = back end
+    end
+    if it then
+      g_game.open(it, nil)
+      lastOpenBp = now
+      return nil, "Abriendo BP de loot..."
+    end
+    return nil, "No encuentro la BP de loot (abre tu mochila)"
+  end
+
+  local function holdCaveBot()
+    pcall(function()
+      if CaveBot and CaveBot.isOn and CaveBot.isOn() and CaveBot.delay then CaveBot.delay(300) end
+    end)
+  end
+
+  local function mobsNear(r)
+    if r <= 0 then return false end
+    local me = player:getPosition()
+    for _, cr in ipairs(getSpectators()) do
+      if cr:isMonster() and not Shared.isSummon(cr) and (cr:getHealthPercent() or 0) > 0
+         and dist(me, cr:getPosition()) <= r then
+        return true
+      end
+    end
+    return false
+  end
+
+  macro(100, function()
+    if not ac.enabled or not g_game.isOnline() then return end
+
+    -- Respaldo: muertes que no avisaron por evento + a quien ataco
+    local tgt = g_game.getAttackingCreature()
+    if tgt then attacked[tgt:getId()] = now end
+    for _, cr in ipairs(getSpectators()) do
+      if cr:isMonster() and (cr:getHealthPercent() or 1) == 0 then pcall(onDeath, cr) end
+    end
+    -- Limpieza
+    for k, t in pairs(seenDead) do if now - t > 60000 then seenDead[k] = nil end end
+    for k, t in pairs(attacked) do if now - t > 60000 then attacked[k] = nil end end
+    for k, t in pairs(looted) do if now - t > 180000 then looted[k] = nil end end
+
+    if ac.pausePk and #Shared.pkList() > 0 then setSt("Pausa: PK en pantalla", "#ffaa44"); return end
+    if now < capBlockUntil or ((ac.minCap or 0) > 0 and myCap() < ac.minCap) then
+      setSt("Pausa: poca capacidad", "#ffaa44"); return
+    end
+    if mobsNear(ac.waitMobs or 0) then
+      if cur or #queue > 0 then setSt("Esperando: hay mobs cerca", "#ffcc66") end
+      return
+    end
+
+    local me = player:getPosition()
+
+    -- 1) Cuerpo abierto: sacar items de a uno
+    if cur and cur.cid then
+      local c = g_game.getContainer(cur.cid)
+      if not c then finish(true); return end
+      holdCaveBot()
+      local items = c:getItems()
+      if cur.lastCount and #items == cur.lastCount and now < (cur.waitUntil or 0) then return end
+      local want = (not ac.lootAll) and wantedSet() or nil
+      local pick
+      for _, it in ipairs(items) do
+        if ac.lootAll or want[it:getId()] then pick = it; break end
+      end
+      if not pick then finish(true); setSt("Activo", "#66ff66"); return end
+      local dest, why = lootDest()
+      if not dest then setSt(why, "#ffaa44"); return end
+      local cnt = (pick.isStackable and pick:isStackable()) and pick:getCount() or 1
+      g_game.move(pick, dest, cnt)
+      cur.lastCount, cur.waitUntil = #items, now + 600
+      setSt("Looteando " .. (cur.name or "cuerpo"), "#88ff88")
+      return
+    end
+
+    -- 2) Esperando que se abra el cuerpo
+    if cur then
+      holdCaveBot()
+      for cid, c in pairs(g_game.getContainers()) do
+        local ci = c.getContainerItem and c:getContainerItem()
+        if not cur.before[cid] and ci and ci:getId() == cur.corpseId then
+          cur.cid = cid
+          return
+        end
+      end
+      local wait = 1500 + dist(me, cur.pos) * 300
+      if now - cur.openAt > wait then
+        if cur.tries >= 3 then finish(true); return end
+        local it = corpseAt(cur.pos)
+        if not it then finish(false); return end
+        if dist(me, cur.pos) > 1 then
+          pcall(function() autoWalk(cur.pos, 20, {ignoreNonPathable = true, precision = 1}) end)
+        end
+        g_game.open(it, nil)
+        cur.openAt, cur.tries = now, cur.tries + 1
+      end
+      return
+    end
+
+    -- 3) Siguiente cuerpo de la cola
+    while #queue > 0 do
+      local q = queue[1]
+      if now - q.at > 120000 or dist(me, q.pos) > (ac.maxDist or 6) then
+        table.remove(queue, 1)
+      else
+        local it = corpseAt(q.pos)
+        if not it then
+          if now - q.at > 2000 then table.remove(queue, 1) else return end
+        else
+          table.remove(queue, 1)
+          if not ac.lootAll and next(wantedSet()) == nil then
+            setSt("Lista vacia: agrega items o marca Recoger TODO", "#ffaa44")
+            return
+          end
+          local before = {}
+          for cid in pairs(g_game.getContainers()) do before[cid] = true end
+          cur = {pos = q.pos, name = q.name, corpseId = it:getId(), openAt = now,
+                 tries = 1, before = before}
+          holdCaveBot()
+          g_game.open(it, nil)
+          setSt("Abriendo " .. q.name, "#88ccff")
+          return
+        end
+      end
+    end
+    if lastSt ~= "Activo" and not lastSt:find("^Lista") then setSt("Activo", "#66ff66") end
   end)
 end
 
@@ -5806,7 +6076,6 @@ local lastRune, lastPot = -1000000, -1000000
 local RUNE_CD, POT_CD, SELF_POT_GAP = 1000, 1000, 1100
 local lastSio, SIO_CD = -1000000, 1000
 
-local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 
 local function groupCooldown(id)
   local ok, res = pcall(function()
@@ -5865,7 +6134,7 @@ local function boostFor(name)
   return w .. ' "' .. name .. '"'
 end
 -- Si el hechizo falla justo despues de lanzarlo, ese compañero se reintenta
-onTextMessage(function(mode, text)
+Shared.onText(function(mode, text)
   if not boostPending or now - boostPending.at > 1200 then return end
   local t = (text or ""):lower()
   if t:find("exhausted", 1, true) or t:find("not possible", 1, true)
@@ -6089,11 +6358,12 @@ end -- fin: 6. HP - Party Support
 endSection(__sec)
 
 -- #####################################################################
--- 7. TOOLS - Safe Anti-Push (Drag Items: Coin / Food)
+-- 7. CAVE - Safe Anti-Push (Drag Items: Coin / Food)
 -- #####################################################################
-__sec = startSection("Tools")
+__sec = startSection("Cave")
 do
-setDefaultTab("Tools")
+setDefaultTab("Cave")
+UIx.header("ANTI-PUSH")
 
 local APK = "safeAntiPushDragV1"
 
@@ -6849,7 +7119,6 @@ local function setAStatus(text, color)
   UIx.setLabel(aWin.status, text, color)
 end
 
-local function trim(s) return (s or ""):match("^%s*(.-)%s*$") end
 local function isRuneKind(k) return k == "rune" or k == "arune" end
 
 -- Filas de la ventana
@@ -7112,7 +7381,6 @@ __sec = startSection("Main")
 do
 setDefaultTab("Main")
 UIx.header("PAZZUR - CAST, BANCO Y STAMINA")
-local function trim(s) return (tostring(s or "")):match("^%s*(.-)%s*$") end
 
 -- ============================================================
 -- AUTO CAST ON + AUTO UNBAN
@@ -7334,7 +7602,7 @@ PzAutoCastWindow < MainWindow
     end
   end)
 
-  onTextMessage(function(mode, text)
+  Shared.onText(function(mode, text)
     if not cc.enabled or not cc.unban or type(text) ~= "string" then return end
     -- Ej: "Spectator Spectator [2] has been banned."
     local name = text:match("Spectator%s+(.-)%s+has been banned")
@@ -7673,13 +7941,12 @@ end -- fin: 9. MAIN - PAZZUR
 endSection(__sec)
 
 -- #####################################################################
--- 10. HP - PAZZUR: Set Ataque/Defensa, War Healer Pazzur y Alarma PK
+-- 10. PAZZUR - Set Ataque/Defensa (Equipo), War Healer Pazzur (HP), Alarma PK (PvP)
 -- #####################################################################
-__sec = startSection("HP")
+__sec = startSection("Equipo")
 do
-setDefaultTab("HP")
-UIx.header("PAZZUR - SET Y CURACION")
-local function trim(s) return (tostring(s or "")):match("^%s*(.-)%s*$") end
+setDefaultTab("Equipo")
+UIx.header("SET PAZZUR")
 
 -- ============================================================
 -- SET PAZZUR (ATAQUE / DEFENSA)
@@ -8114,6 +8381,10 @@ PzSetWindow < MainWindow
   end)
 end
 
+endSection(__sec)
+__sec = startSection("HP")
+UIx.header("PAZZUR - CURACION")
+
 -- ============================================================
 -- WAR HEALER PAZZUR (antes "Kina War Healer") - TODAS LAS VOCACIONES
 --  PERFILES: uno por vocacion: Knight, Paladin y Mago (Druid y
@@ -8136,6 +8407,8 @@ end
 --   - Fuerte: si esta en cooldown o sin mana, usa el Normal.
 --   - Mana minima por hechizo (0 = no revisa).
 --   - Pausa entre hechizos (exhaust de curacion; 0 = como antes).
+--   - Fuerte y Normal esperan el cooldown real de curacion del cliente
+--     (si el servidor lo envia), asi no se pierden por exhaust.
 --  Se pausa si "War Healer" esta activo (no usar los dos juntos).
 -- ============================================================
 do
@@ -8382,7 +8655,7 @@ PzSpellRow < Panel
 
 PzKinaWindow < MainWindow
   !text: tr('War Healer Pazzur')
-  size: 490 790
+  size: 490 650
   @onEscape: self:hide()
 
   Label
@@ -8603,48 +8876,22 @@ PzKinaWindow < MainWindow
     anchors.right: parent.right
     margin-top: 10
 
-  VbTitle
-    id: tSpells
+  Button
+    id: spellsBtn
     anchors.top: sep2.bottom
     anchors.left: parent.left
-    margin-top: 6
-    text: Hechizos
-
-  Panel
-    id: spells
-    anchors.top: tSpells.bottom
-    anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 4
-    height: 82
-    layout:
-      type: verticalBox
-      spacing: 2
-
-  Label
-    id: lGap
-    anchors.top: spells.bottom
-    anchors.left: parent.left
     margin-top: 8
-    width: 250
-    text: Pausa entre hechizos (ms, 0 = no)
-
-  SpinBox
-    id: spellGap
-    anchors.verticalCenter: lGap.verticalCenter
-    anchors.left: lGap.right
-    width: 60
-    minimum: 0
-    maximum: 5000
-    step: 100
+    height: 24
+    text: Hechizos de curacion...
 
   VbHint
     id: hint
-    anchors.top: lGap.bottom
+    anchors.top: spellsBtn.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 8
-    text: Critico tiene prioridad absoluta en su rango. Fuerte va primero en su rango y, si esta en cooldown o sin mana, usa Normal. Item o hechizo vacio = apagado.
+    margin-top: 6
+    text: Item vacio = apagado. Los hechizos (Critico, Fuerte, Normal) se configuran en su propia ventana.
 
   HorizontalSeparator
     id: sepBottom
@@ -8684,9 +8931,76 @@ PzKinaWindow < MainWindow
     text: Cerrar
 ]])
 
+  g_ui.loadUIFromString([[
+PzKinaSpellsWindow < MainWindow
+  !text: tr('War Healer Pazzur - Hechizos')
+  size: 490 270
+  @onEscape: self:hide()
+
+  Label
+    id: prof
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: parent.right
+    height: 18
+    color: #ffaa00
+    text: Editando: Knight
+
+  Panel
+    id: spells
+    anchors.top: prof.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    height: 82
+    layout:
+      type: verticalBox
+      spacing: 2
+
+  Label
+    id: lGap
+    anchors.top: spells.bottom
+    anchors.left: parent.left
+    margin-top: 8
+    width: 250
+    text: Pausa entre hechizos (ms, 0 = no)
+
+  SpinBox
+    id: spellGap
+    anchors.verticalCenter: lGap.verticalCenter
+    anchors.left: lGap.right
+    width: 60
+    minimum: 0
+    maximum: 5000
+    step: 100
+
+  VbHint
+    id: hint
+    anchors.top: lGap.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: Critico tiene prioridad absoluta en su rango. Fuerte va primero en su rango y, si esta en cooldown o sin mana, usa Normal. Hechizo vacio = apagado.
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
   local kUI = UIx.scriptPanel("War Healer Pazzur")
   local kWin = UI.createWindow('PzKinaWindow', rootWidget)
   kWin:hide()
+  -- Ventana secundaria de hechizos. Sus casillas se enlazan como si
+  -- estuvieran en la ventana principal (el resto del codigo no cambia).
+  local sWin = UI.createWindow('PzKinaSpellsWindow', rootWidget)
+  sWin:hide()
+  kWin.spells   = sWin.spells
+  kWin.spellGap = sWin.spellGap
+  kWin.spellsBtn.onClick = function() UIx.toggleWindow(sWin) end
+  sWin.closeBtn.onClick = function() sWin:hide() end
   local NEVER = -100000000
   local lastStatus, lastActAt = "", NEVER
   local function setStatus(t, c)
@@ -8755,6 +9069,7 @@ PzKinaWindow < MainWindow
     local use = activeProfile()
     kWin.profInfo:setText("Usando: " .. PROF_NAME[use])
     kWin.profBtn:setText("Editando: " .. PROF_NAME[editKey])
+    sWin.prof:setText("Editando perfil: " .. PROF_NAME[editKey])
     kWin.modeBtn:setText("Modo pociones: " .. (MODE_TXT[E().mode] or "VIDA"))
   end
 
@@ -8824,7 +9139,7 @@ PzKinaWindow < MainWindow
     setTo(E(), defaults(editKey))   -- solo el perfil que estas editando
     loadValues()
   end
-  kWin.closeBtn.onClick = function() kWin:hide() end
+  kWin.closeBtn.onClick = function() kWin:hide(); sWin:hide() end
   kUI.setupBtn.onClick = function()
     UIx.toggleWindow(kWin, function()
       editKey = activeProfile()
@@ -8875,10 +9190,22 @@ PzKinaWindow < MainWindow
   local lastAnySpell = NEVER
   local lastPk = nil
 
+  -- Cooldown real del grupo de curacion (icono del cliente). Si el
+  -- servidor no lo manda, devuelve false y todo sigue como antes.
+  local function healGroupBusy()
+    local ok, res = pcall(function()
+      return modules.game_cooldown.isGroupCooldownIconActive(2)
+    end)
+    return ok and res == true
+  end
+
   local function cast(P, key)
     local s = P.spells[key]
     local w = trim(s.words or ""):lower()
     if w == "" or not ready(lastSpell[key], s.delay) then return false end
+    -- Fuerte y Normal esperan al exhaust de curacion (no se pierden).
+    -- El Critico nunca espera: puede ser de otro grupo de hechizos.
+    if key ~= "ultimate" and healGroupBusy() then return false end
     if (s.mana or 0) > 0 and myMana() < s.mana then
       if now - lastActAt > 600 then act("Sin mana para " .. w, "#ffaa44") end
       return false
@@ -9024,6 +9351,9 @@ PzKinaWindow < MainWindow
     if now - lastActAt > 2000 then setStatus(idleText(), "#66ff66") end
   end)
 end
+
+endSection(__sec)
+__sec = startSection("PvP")
 
 -- ============================================================
 -- ALARMA PK (calavera blanca, roja o negra)
@@ -9573,7 +9903,7 @@ AutoFoodWindow < MainWindow
   local nextTry, fullUntil, pkSeenAt = 0, 0, -1000000
   local hotkeyIdx = 0
 
-  onTextMessage(function(mode, text)
+  Shared.onText(function(mode, text)
     local t = (text or ""):lower()
     if t:find("you are full", 1, true) or t:find("estas lleno", 1, true)
        or t:find("estás lleno", 1, true) then
@@ -9667,7 +9997,7 @@ endSection(__sec)
 
 
 -- =====================================================================
--- 13. TOOLS - EXIVA EN EL MINIMAPA
+-- 12. PVP - EXIVA EN EL MINIMAPA
 --  - Lee los mensajes de exiva ("X is very far to the north-east.")
 --    y pone una bandera en el minimapa en la zona aproximada.
 --  - Con varios exivas desde lugares distintos cruza las zonas
@@ -9677,7 +10007,8 @@ endSection(__sec)
 --  Distancias de Tibia: al lado < 5 | "to the" 5-100 |
 --  "far" 101-274 | "very far" 275 o mas.
 -- =====================================================================
-__sec = startSection("Tools")
+__sec = startSection("PvP")
+UIx.header("EXIVA")
 do
   local XK = "exivaMapV1"
   local DEF = {enabled = false, name = "", auto = false, every = 5}
@@ -9685,7 +10016,6 @@ do
   local xc = storage[XK]
   for k, v in pairs(DEF) do if xc[k] == nil then xc[k] = v end end
 
-  local function trim(t) return (tostring(t or "")):match("^%s*(.-)%s*$") end
 
   g_ui.loadUIFromString([[
 ExivaMapWindow < MainWindow
@@ -10144,7 +10474,7 @@ ExivaMapWindow < MainWindow
   -- ----- Leer mensajes de exiva -----
   -- Lee si el script esta activo, o si acabas de usar "Exiva ahora"
   local lastCast = -1000000
-  onTextMessage(function(mode, text)
+  Shared.onText(function(mode, text)
     if not xc.enabled and now - lastCast > 4000 then return end
     local name, rest = tostring(text or ""):match("^(.-) is (.-)%.?$")
     if not name or name == "" or #name > 40 then return end
@@ -10203,7 +10533,7 @@ end
 endSection(__sec)
 
 -- =====================================================================
--- 14. TOOLS - EXANI HUR (levitar arriba / abajo)
+-- 13. PVP - EXANI HUR (levitar arriba / abajo)
 --  - Boton "Levitar" en la pestana: mira el sqm de enfrente y elige
 --    solo si es "exani hur up" o "exani hur down".
 --  - Modo automatico (interruptor): al chocar UNA vez contra una pared
@@ -10219,7 +10549,7 @@ endSection(__sec)
 --    pueda (hasta 3 s). Si aun asi sale "exhausted", reintenta 1 vez.
 --  - Solo funciona mirando al norte, sur, este u oeste (no diagonal).
 -- =====================================================================
-__sec = startSection("Tools")
+__sec = startSection("PvP")
 do
   local LK = "exaniHurV1"
   local DEF = {enabled = false, minMana = 50, tryFirst = "down"}
@@ -10426,7 +10756,7 @@ ExaniHurQuick < Panel
   end)
 
   -- Si sale "exhausted" justo despues de lanzarlo: reintentar 1 vez
-  onTextMessage(function(mode, text)
+  Shared.onText(function(mode, text)
     if not queued or queued.waiting or not queued.sentAt then return end
     if now - queued.sentAt > 1200 then queued = nil; return end
     local t = (text or ""):lower()
@@ -10560,7 +10890,7 @@ endSection(__sec)
 
 -- =====================================================================
 -- =====================================================================
--- 15. TOOLS - AUTO FOLLOW MC (sigue por gradas, escaleras, rope, puertas)
+-- 14. PVP - AUTO FOLLOW MC (sigue por gradas, escaleras, rope, puertas)
 --  Motor de seguimiento por pisos adaptado. Recuerda la ultima posicion
 --  del compañero en tu piso; al cambiar de nivel camina ahi y USA lo que
 --  haya (escalera, rope, pala, grada, puerta). No lee mapas de otros
@@ -10569,7 +10899,7 @@ endSection(__sec)
 --    pasa al siguiente.
 --  - Lo usa tambien el War Chase (modo CON PISOS) para el enemigo.
 -- =====================================================================
-__sec = startSection("Tools")
+__sec = startSection("PvP")
 do
   local FK = "autoFollowV2"
   if type(storage[FK]) ~= "table" then
@@ -10578,7 +10908,6 @@ do
   local fc = storage[FK]
   if fc.priority == nil then fc.priority = true end
 
-  local function trim(t) return (tostring(t or "")):match("^%s*(.-)%s*$") end
   local function low(s) return trim(s):lower() end
   local function dist(a, b)
     if not a or not b then return 999 end
@@ -11068,367 +11397,6 @@ AutoFollowWindow < MainWindow
     if r=="same" then setSt("Siguiendo a "..target:getName(), "#66ccff")
     elseif r=="floor" then setSt("Siguiendo por piso a "..target:getName().."...", "#66ccff")
     else setSt("Perdi a "..target:getName(), "#ffaa44") end
-  end)
-end
-endSection(__sec)
-
--- =====================================================================
--- 16. TOOLS - RAINBOW OUTFIT (colores del outfit en arcoiris)
---  - Cambia los colores de cabeza, cuerpo, piernas y pies (eliges cuales).
---  - Modos: ARCOIRIS (todas las partes del mismo color, recorriendo los
---    18 tonos), ESCALONADO (cada parte un tono distinto, efecto degradado)
---    y ALEATORIO.
---  - Intensidad 0-6 = fila de la paleta de Tibia (4 = colores mas vivos).
---  - El cambio de outfit NO comparte exhaust con hechizos, pociones ni
---    runas. Aun asi:
---     * intervalo en SEGUNDOS (minimo 1, por defecto 1) para no pasar el
---       limite de paquetes por segundo del servidor;
---     * espera 1.5 s despues de cada movimiento del EquipCore, para que
---       un "exhausted" del outfit no se confunda con un set rechazado;
---     * si el servidor contesta "exhausted" o "You have to wait a while"
---       al cambio de outfit, sube solo el intervalo (+1 s, hasta +9 s).
---  - Al apagarlo devuelve los colores que tenias al encenderlo.
---  - No toca el tipo de outfit, addons ni montura.
--- =====================================================================
-__sec = startSection("Tools")
-do
-  local RK = "rainbowOutfitV1"
-  local DEF = {
-    enabled = false, seconds = 1, tone = 4, mode = "rainbow",
-    head = true, body = true, legs = true, feet = true,
-    pausePk = false, restore = true, saved = nil,
-  }
-  if type(storage[RK]) ~= "table" then storage[RK] = {} end
-  local rc = storage[RK]
-  -- de la version en ms a segundos (conserva lo que ya tenias)
-  if rc.seconds == nil and type(rc.interval) == "number" then
-    rc.seconds = math.max(1, math.floor(rc.interval / 1000 + 0.5))
-  end
-  rc.interval = nil
-  for k, v in pairs(DEF) do if rc[k] == nil then rc[k] = v end end
-
-  g_ui.loadUIFromString([[
-RainbowOutfitWindow < MainWindow
-  !text: tr('Rainbow Outfit')
-  size: 360 360
-  @onEscape: self:hide()
-
-  VbTitle
-    id: tParts
-    anchors.top: parent.top
-    anchors.left: parent.left
-    text: Partes a cambiar
-
-  CheckBox
-    id: head
-    anchors.top: tParts.bottom
-    anchors.left: parent.left
-    anchors.right: parent.horizontalCenter
-    margin-top: 6
-    text: Cabeza
-
-  CheckBox
-    id: body
-    anchors.top: tParts.bottom
-    anchors.left: parent.horizontalCenter
-    anchors.right: parent.right
-    margin-top: 6
-    text: Cuerpo
-
-  CheckBox
-    id: legs
-    anchors.top: head.bottom
-    anchors.left: parent.left
-    anchors.right: parent.horizontalCenter
-    margin-top: 6
-    text: Piernas
-
-  CheckBox
-    id: feet
-    anchors.top: head.bottom
-    anchors.left: parent.horizontalCenter
-    anchors.right: parent.right
-    margin-top: 6
-    text: Pies
-
-  HorizontalSeparator
-    id: sep1
-    anchors.top: legs.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-
-  VbTitle
-    id: tOpts
-    anchors.top: sep1.bottom
-    anchors.left: parent.left
-    margin-top: 6
-    text: Opciones
-
-  Button
-    id: modeBtn
-    anchors.top: tOpts.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    height: 22
-    text: Modo: ARCOIRIS
-
-  Label
-    id: lInt
-    anchors.top: modeBtn.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 200
-    text: Cambiar cada (segundos)
-
-  SpinBox
-    id: interval
-    anchors.verticalCenter: lInt.verticalCenter
-    anchors.left: lInt.right
-    width: 70
-    minimum: 1
-    maximum: 60
-    step: 1
-
-  Label
-    id: lTone
-    anchors.top: lInt.bottom
-    anchors.left: parent.left
-    margin-top: 14
-    width: 200
-    text: Intensidad (0 palido - 6 oscuro)
-
-  SpinBox
-    id: tone
-    anchors.verticalCenter: lTone.verticalCenter
-    anchors.left: lTone.right
-    width: 70
-    minimum: 0
-    maximum: 6
-
-  CheckBox
-    id: pausePk
-    anchors.top: lTone.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 12
-    text: Pausar si hay PK en pantalla
-
-  CheckBox
-    id: restore
-    anchors.top: pausePk.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 6
-    text: Devolver mis colores al apagar
-
-  VbHint
-    id: hint
-    anchors.top: restore.bottom
-    anchors.left: parent.left
-    anchors.right: parent.right
-    margin-top: 8
-    text: El outfit no comparte exhaust con hechizos ni pociones. Si tu servidor responde exhausted, el intervalo se sube solo.
-
-  VbStatus
-    id: status
-    anchors.left: parent.left
-    anchors.right: parent.right
-    anchors.bottom: enableBtn.top
-    margin-bottom: 6
-    text: Inactivo
-
-  Button
-    id: enableBtn
-    anchors.bottom: parent.bottom
-    anchors.left: parent.left
-    width: 90
-    text: Activar
-
-  Button
-    id: closeBtn
-    anchors.bottom: parent.bottom
-    anchors.right: parent.right
-    width: 70
-    text: Cerrar
-]])
-
-  UIx.header("RAINBOW OUTFIT")
-  local rUI = UIx.scriptPanel("Rainbow Outfit")
-  local rWin = UI.createWindow('RainbowOutfitWindow', rootWidget)
-  rWin:hide()
-
-  local lastSt = ""
-  local function setSt(t, c)
-    if t == lastSt then return end
-    lastSt = t
-    UIx.setLabel(rUI.status, t, c)
-    UIx.setLabel(rWin.status, t, c)
-  end
-
-  -- ----- Paleta de Tibia: 7 filas x 19 columnas (0..132) -----
-  -- Columna 0 = grises; columnas 1..18 = los 18 tonos del arcoiris.
-  local HUES = 18
-  local function colorOf(tone, hue)
-    hue = ((hue - 1) % HUES) + 1          -- 1..18
-    return tone * 19 + hue
-  end
-
-  local MODES = {"rainbow", "steps", "random"}
-  local MODE_TXT = {rainbow = "ARCOIRIS", steps = "ESCALONADO", random = "ALEATORIO"}
-  local PARTS = {"head", "body", "legs", "feet"}
-
-  -- ----- Ventana -----
-  for _, k in ipairs(PARTS) do
-    rWin[k]:setChecked(rc[k] == true)
-    rWin[k].onCheckChange = function(w, v) rc[k] = v end
-  end
-  rWin.pausePk:setChecked(rc.pausePk == true)
-  rWin.pausePk.onCheckChange = function(w, v) rc.pausePk = v end
-  rWin.restore:setChecked(rc.restore == true)
-  rWin.restore.onCheckChange = function(w, v) rc.restore = v end
-
-  local backoff = 0               -- ms extra si el servidor pide esperar
-  local function baseMs() return math.max(1, rc.seconds or 1) * 1000 end
-  local function secTxt(ms)
-    local v = ms / 1000
-    if v == math.floor(v) then return tostring(math.floor(v)) .. " s" end
-    return string.format("%.1f s", v)
-  end
-  rWin.interval:setValue(rc.seconds or 1)
-  rWin.interval.onValueChange = function(w, v) rc.seconds = v; backoff = 0 end
-  rWin.tone:setValue(rc.tone or 4)
-  rWin.tone.onValueChange = function(w, v) rc.tone = v end
-
-  local function showMode()
-    rWin.modeBtn:setText("Modo: " .. (MODE_TXT[rc.mode] or "ARCOIRIS"))
-  end
-  rWin.modeBtn.onClick = function()
-    local i = 1
-    for n, m in ipairs(MODES) do if m == rc.mode then i = n end end
-    rc.mode = MODES[(i % #MODES) + 1]
-    showMode()
-  end
-  showMode()
-
-  rWin.closeBtn.onClick = function() rWin:hide() end
-  rUI.setupBtn.onClick = function() UIx.toggleWindow(rWin) end
-
-  -- ----- Outfit -----
-  local function currentOutfit()
-    local ok, o = pcall(function() return player:getOutfit() end)
-    if ok and type(o) == "table" then return o end
-    return nil
-  end
-
-  local lastChange = -1000000
-  local nextAt = 0
-  local function sendColors(cols)
-    local o = currentOutfit()
-    if not o then return false end
-    local n, same = {}, true
-    for k, v in pairs(o) do n[k] = v end
-    for k, v in pairs(cols) do
-      if n[k] ~= v then same = false end
-      n[k] = v
-    end
-    if same then return true end
-    local ok = pcall(function() g_game.changeOutfit(n) end)
-    if ok then
-      lastChange = now
-      Shared.lastOutfitChange = now
-    end
-    return ok
-  end
-
-  local function saveOriginal()
-    local o = currentOutfit()
-    if o then
-      rc.saved = {head = o.head, body = o.body, legs = o.legs, feet = o.feet}
-    end
-  end
-
-  local function restoreOriginal()
-    if rc.restore and type(rc.saved) == "table" and g_game.isOnline() then
-      sendColors(rc.saved)
-    end
-    rc.saved = nil
-  end
-
-  UIx.bindSwitch(rc, rUI.switch, rWin.enableBtn, function(on)
-    backoff = 0
-    if on then
-      if not rc.saved then saveOriginal() end
-      setSt("Activo", "#66ff66")
-    else
-      if rc.saved then restoreOriginal() end
-      setSt("Inactivo", "#888888")
-    end
-  end)
-
-  -- ----- Si el servidor da exhausted al cambio de outfit -----
-  onTextMessage(function(mode, text)
-    if not rc.enabled then return end
-    local t = (text or ""):lower()
-    if not (t:find("exhaust") or t:find("agotad")
-            or t:find("wait a while") or t:find("have to wait")
-            or t:find("tienes que esperar") or t:find("debes esperar")) then return end
-    if now - lastChange > 800 then return end
-    -- si justo hubo pocion / hechizo / equipo, el exhaust no es nuestro
-    if now - (Shared.lastSelfPotion or -1000000) < 800 then return end
-    if now - (Shared.lastSupport or -1000000) < 800 then return end
-    if now - (Shared.lastSelfHeal or -1000000) < 800 then return end
-    if now - (Shared.lastEquipMove or -1000000) < 800 then return end
-    if backoff < 9000 then backoff = backoff + 1000 end
-    nextAt = now + baseMs() + backoff
-    setSt("Servidor pide esperar: cada " .. secTxt(baseMs() + backoff), "#ffaa44")
-  end)
-
-  -- ----- Bucle -----
-  local hue = 1
-  macro(100, function()
-    if not rc.enabled or not g_game.isOnline() then return end
-    if not rc.saved then saveOriginal() end      -- encendido antes de loguear
-
-    local anyPart = false
-    for _, k in ipairs(PARTS) do if rc[k] then anyPart = true end end
-    if not anyPart then setSt("Marca alguna parte en Config", "#ffaa44"); return end
-
-    if rc.pausePk and not Shared.inPz() and #Shared.pkList() > 0 then
-      setSt("Pausa: PK en pantalla", "#ffaa44"); return
-    end
-    -- no mezclar con un cambio de set en curso (EquipCore)
-    if now - (Shared.lastEquipMove or -1000000) < 1500 then
-      setSt("Esperando cambio de equipo...", "#ffcc66"); return
-    end
-    if now < nextAt then return end
-    nextAt = now + baseMs() + backoff
-
-    local tone = math.max(0, math.min(6, rc.tone or 4))
-    local cols, i = {}, 0
-    for _, k in ipairs(PARTS) do
-      if rc[k] then
-        if rc.mode == "random" then
-          cols[k] = colorOf(tone, math.random(1, HUES))
-        elseif rc.mode == "steps" then
-          cols[k] = colorOf(tone, hue + i * 3)
-        else
-          cols[k] = colorOf(tone, hue)
-        end
-        i = i + 1
-      end
-    end
-    hue = (hue % HUES) + 1
-
-    if sendColors(cols) then
-      if backoff == 0 then
-        setSt("Activo (" .. (MODE_TXT[rc.mode] or "") .. ", cada "
-              .. secTxt(baseMs()) .. ")", "#66ff66")
-      end
-    else
-      setSt("No se pudo cambiar el outfit", "#ff6666")
-    end
   end)
 end
 endSection(__sec)
