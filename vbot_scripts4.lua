@@ -1,9 +1,15 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 68)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 69)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v69
+--   - Auto Loot: corregido el error "attempt to call global 'next'"
+--     (vBot no trae esa funcion). Si el servidor dice "There is not
+--     enough room", marca esa BP como llena y abre la siguiente.
+--   - Anti-Push pasa a la pestana Equipo.
 --
 --  CAMBIOS v68
 --   - Tus pestanas van primero (Main, HP, Equipo, Cave, PvP) y despues
@@ -30,19 +36,15 @@
 --   - War Healer Pazzur: Fuerte y Normal esperan el cooldown real de
 --     curacion; ya no se pierden hechizos por exhaust.
 --
---  CAMBIOS v65
---   - War Healer Pazzur, perfil Mago: Inmortal (MP 5-20) y Adrenalina
---     (MP 36-55) van por MANA, no por vida. Recovery sigue por HP y
---     Rec. Mana pasa a MP 21-35. Knight y Paladin sin cambios.
---
 --  INDICE  (pestana - script)
 --   MAIN   - 0. Profesion | 1. Exercise Trainer | 2. Smart Imbue
 --            9. Pazzur: Auto Cast + Unban, Auto Bank, Auto Stamina
 --   HP     - 3. War Healer | 6. Party Support | 10. War Healer Pazzur
 --            11. Auto Comida
---   EQUIPO - 3. Anillo y Amuleto, Equipo Auto | 10. Set Pazzur
+--   EQUIPO - 3. Anillo y Amuleto, Equipo Auto | 7. Anti-Push
+--            10. Set Pazzur
 --   CAVE   - 4. Buff de ataque, Autosell | 5. Dynamic Lure, Auto Loot
---            7. Anti-Push | 8. Attack Bot
+--            8. Attack Bot
 --   PVP    - 4. War Chase | 10. Alarma PK | 12. Exiva | 13. Exani Hur
 --            14. Auto Follow MC
 -- =====================================================================
@@ -5358,6 +5360,12 @@ AutoLootWindow < MainWindow
     return skipSet[Shared.baseName(name)] == true
   end
 
+  -- vBot no trae next(): revisar si una tabla esta vacia a mano
+  local function isEmpty(t)
+    for _ in pairs(t) do return false end
+    return true
+  end
+
   local function wantedSet()
     local set = {}
     for _, id in ipairs(ac.items or {}) do set[id] = true end
@@ -5397,6 +5405,7 @@ AutoLootWindow < MainWindow
   -- ----- Cuerpo actual -----
   local cur = nil           -- {pos, corpseId, openAt, tries, before, cid, waitUntil, lastCount}
   local lastOpenBp, capBlockUntil = NEVER, NEVER
+  local fullUntil, lastDestCid = {}, nil   -- BPs que el servidor dijo llenas
 
   local function finish(markLooted)
     if cur then
@@ -5418,6 +5427,9 @@ AutoLootWindow < MainWindow
     elseif t:find("too heavy") or t:find("demasiado pesad") then
       capBlockUntil = now + 10000
       finish(false)
+    elseif (t:find("not enough room") or t:find("no hay suficiente espacio")
+            or t:find("cannot put more")) and lastDestCid then
+      fullUntil[lastDestCid] = now + 5000
     end
   end)
 
@@ -5446,7 +5458,10 @@ AutoLootWindow < MainWindow
         local iid = ci and ci:getId() or 0
         local okp, pick = pcall(function() return ci and ci:isPickupable() end)
         if okp and pick and (bpId == 0 or iid == bpId) then
-          if hasRoom(c) then return c:getSlotPosition(cCount(c)) end
+          if hasRoom(c) and now >= (fullUntil[cid] or 0) then
+            lastDestCid = cid
+            return c:getSlotPosition(cCount(c))
+          end
           if iid == bpId then fullBp = c end
         end
       end
@@ -5576,7 +5591,7 @@ AutoLootWindow < MainWindow
           if now - q.at > 2000 then table.remove(queue, 1) else return end
         else
           table.remove(queue, 1)
-          if not ac.lootAll and next(wantedSet()) == nil then
+          if not ac.lootAll and isEmpty(wantedSet()) then
             setSt("Lista vacia: agrega items o marca Recoger TODO", "#ffaa44")
             return
           end
@@ -6353,11 +6368,11 @@ end -- fin: 6. HP - Party Support
 endSection(__sec)
 
 -- #####################################################################
--- 7. CAVE - Safe Anti-Push (Drag Items: Coin / Food)
+-- 7. EQUIPO - Safe Anti-Push (Drag Items: Coin / Food)
 -- #####################################################################
-__sec = startSection("Cave")
+__sec = startSection("Equipo")
 do
-setDefaultTab("Cave")
+setDefaultTab("Equipo")
 UIx.header("ANTI-PUSH")
 
 local APK = "safeAntiPushDragV1"
