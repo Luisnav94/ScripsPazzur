@@ -1,9 +1,13 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 67)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 68)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v68
+--   - La pestana "Target" de vBot pasa al final, para que PvP quede a
+--     mano. Solo se mueve el boton; si tu vBot no lo permite, no pasa nada.
 --
 --  CAMBIOS v67
 --   - NUEVO "Auto Loot" (pestana Cave, debajo del Dynamic Lure): BP de
@@ -28,17 +32,6 @@
 --   - War Healer Pazzur, perfil Mago: Inmortal (MP 5-20) y Adrenalina
 --     (MP 36-55) van por MANA, no por vida. Recovery sigue por HP y
 --     Rec. Mana pasa a MP 21-35. Knight y Paladin sin cambios.
---
---  CAMBIOS v64
---   - "Kina War Healer" pasa a ser "War Healer Pazzur" para TODAS las
---     vocaciones: un perfil para Knight, otro para Paladin y otro para
---     Mago (Druid y Sorcerer). Se elige solo segun el personaje. Tu
---     config del Kina queda como perfil Knight, igual que estaba.
---   - Pocion de mana normal y especial "Rec. Mana" (11766) por rango
---     de MP, con la misma ventana de prioridad que las especiales de vida.
---   - Modo de pociones VIDA / MANA / AUTO (boton y hotkey opcional) y
---     HP de emergencia: con MANA o AUTO la vida siempre gana por debajo.
---   - Hechizos con mana minima y pausa entre hechizos opcional.
 --
 --  INDICE  (pestana - script)
 --   MAIN   - 0. Profesion | 1. Exercise Trainer | 2. Smart Imbue
@@ -11400,3 +11393,66 @@ AutoFollowWindow < MainWindow
   end)
 end
 endSection(__sec)
+
+-- #####################################################################
+-- ORDEN DE PESTANAS: pasar "Target" (pestana de vBot) al final
+--  Solo mueve el BOTON de la pestana; su contenido no se toca. Si la
+--  version de vBot no lo permite, no hace nada (no afecta a nada mas).
+--  Se intenta varias veces porque vBot puede crear "Target" despues.
+-- #####################################################################
+do
+  local function tabText(w)
+    local ok, t = pcall(function() return w:getText() end)
+    return ok and type(t) == "string" and t:lower() or ""
+  end
+
+  -- Barra de pestanas: subiendo desde el panel de una pestana
+  local function findBar()
+    local content
+    pcall(function()
+      setDefaultTab("Main")
+      local probe = setupUI("Panel\n  height: 1")
+      content = probe:getParent()
+      probe:destroy()
+    end)
+    local w = content
+    for _ = 1, 15 do
+      if not w then break end
+      local ok, tabs = pcall(function() return w.tabs end)
+      if ok and type(tabs) == "table" and #tabs > 0 then return w, tabs end
+      local okp, parent = pcall(function() return w:getParent() end)
+      w = okp and parent or nil
+    end
+    return nil
+  end
+
+  local function moveTargetLast()
+    local done = false
+    pcall(function()
+      local bar, tabs = findBar()
+      if not bar then return end
+      local idx
+      for i, t in ipairs(tabs) do
+        if tabText(t) == "target" then idx = i end
+      end
+      if not idx then return end
+      local btn = tabs[idx]
+      if idx ~= #tabs then
+        table.remove(tabs, idx)
+        table.insert(tabs, btn)
+      end
+      local parent = btn:getParent()
+      if parent then
+        parent:moveChildToIndex(btn, parent:getChildCount())
+        pcall(function() parent:updateLayout() end)
+      end
+      pcall(function() if bar.updateTabs then bar:updateTabs() end end)
+      done = true
+    end)
+    return done
+  end
+
+  for _, ms in ipairs({300, 1500, 4000}) do
+    pcall(function() schedule(ms, moveTargetLast) end)
+  end
+end
