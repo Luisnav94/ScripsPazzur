@@ -1,9 +1,14 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 64)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 65)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v65
+--   - War Healer Pazzur, perfil Mago: Inmortal (MP 5-20) y Adrenalina
+--     (MP 36-55) van por MANA, no por vida. Recovery sigue por HP y
+--     Rec. Mana pasa a MP 21-35. Knight y Paladin sin cambios.
 --
 --  CAMBIOS v64
 --   - "Kina War Healer" pasa a ser "War Healer Pazzur" para TODAS las
@@ -8119,6 +8124,8 @@ end
 --   - Especiales de vida por rango de HP (Inmortal, Recovery,
 --     Adrenalina) y especial de mana por rango de MP (Recovery Mana):
 --     al entrar en su rango tienen prioridad durante una ventana corta.
+--   - En el perfil Mago, Inmortal y Adrenalina van por MP (mana), no
+--     por HP. Recovery sigue por HP.
 --   - Modo de las pociones normales:
 --       VIDA : vida primero; mana solo si la vida esta bien.
 --       MANA : mana primero; vida solo con HP <= "emergencia".
@@ -8165,7 +8172,7 @@ do
       },
     }
     for i, s in ipairs(SPECIAL_DEF) do
-      d.specials[i] = {id = s.id, min = s.min, max = s.max}
+      d.specials[i] = {id = s.id, min = s.min, max = s.max, by = "hp"}
     end
     if p == "paladin" then
       d.health = {id = 7642, hp = 85, delay = 200}
@@ -8181,7 +8188,10 @@ do
       d.health = {id = 266, hp = 60, delay = 200}
       d.mana   = {id = 238, mp = 70, delay = 200}
       d.mode, d.emergHp, d.spellGap = "auto", 45, 1000
-      d.manaSpecial.id = MSPECIAL_DEF.id
+      d.manaSpecial = {id = MSPECIAL_DEF.id, min = 21, max = 35}
+      -- En magos Inmortal y Adrenalina recuperan MANA: van por MP
+      d.specials[1].by = "mp"
+      d.specials[3].by = "mp"
       d.spells = {
         ultimate = {words = "",           min = 1, max = 18, delay = 500,  mana = 0},
         gran     = {words = "exura vita", min = 1, max = 50, delay = 1000, mana = 160},
@@ -8221,6 +8231,14 @@ do
     fill(kc.profiles[p], defaults(p))
   end
   kc.modeKey = kc.modeKey or ""
+  -- v64 -> v65: en el Mago, Rec. Mana pasa a 21-35 (Inmortal usa 5-20 de MP)
+  do
+    local rm = kc.profiles.mage.manaSpecial
+    if not kc.mageMpV65 then
+      if rm.min == 1 and rm.max == 30 then rm.min, rm.max = 21, 35 end
+      kc.mageMpV65 = true
+    end
+  end
 
   local function activeProfile()
     local ok, v = pcall(function() return Prof.get() end)
@@ -8755,6 +8773,7 @@ PzKinaWindow < MainWindow
     kWin.spellGap:setValue(P.spellGap or 0)
     for i, row in ipairs(specialRows) do
       local sp = P.specials[i]
+      row.lMin:setText(sp.by == "mp" and "MP de" or "HP de")
       row.item:setItemId(sp.id or 0)
       row.min:setValue(sp.min or 0)
       row.max:setValue(sp.max or 0)
@@ -8851,7 +8870,7 @@ PzKinaWindow < MainWindow
 
   local lastHealth, lastMana, lastSpecialTry, lastMSpecTry = NEVER, NEVER, NEVER, NEVER
   local specialIdx, specialStart = nil, 0
-  local mSpecIn, mSpecStart = false, 0
+  local mSpecIdx, mSpecStart = nil, 0
   local lastSpell = {ultimate = NEVER, gran = NEVER, mort = NEVER}
   local lastAnySpell = NEVER
   local lastPk = nil
@@ -8895,7 +8914,7 @@ PzKinaWindow < MainWindow
       -- cambio de personaje / vocacion: empezar limpio
       lastPk = pk
       lastHealth, lastMana, lastSpecialTry, lastMSpecTry = NEVER, NEVER, NEVER, NEVER
-      specialIdx, mSpecIn = nil, false
+      specialIdx, mSpecIdx = nil, nil
       lastSpell = {ultimate = NEVER, gran = NEVER, mort = NEVER}
       lastAnySpell = NEVER
     end
@@ -8919,7 +8938,7 @@ PzKinaWindow < MainWindow
     -- 1) Especial de vida por rango de HP (prioridad sobre todo)
     local want, wantIdx
     for i, sp in ipairs(P.specials) do
-      if (sp.id or 0) > 0 and inRange(hp, sp.min, sp.max) then
+      if sp.by ~= "mp" and (sp.id or 0) > 0 and inRange(hp, sp.min, sp.max) then
         want, wantIdx = sp, i
         break
       end
@@ -8938,15 +8957,27 @@ PzKinaWindow < MainWindow
       return
     end
 
-    -- 2) Especial de mana: ventana desde que entras en su rango de MP
-    local ms = P.manaSpecial
-    local inMs = (ms.id or 0) > 0 and inRange(mp, ms.min, ms.max)
-    if inMs ~= mSpecIn then
-      mSpecIn = inMs
+    -- 2) Especiales de mana por rango de MP (en el Mago: Inmortal y
+    --    Adrenalina; en todos: Rec. Mana). Gana la primera de la lista.
+    local ms, msIdx, msName
+    for i, sp in ipairs(P.specials) do
+      if sp.by == "mp" and (sp.id or 0) > 0 and inRange(mp, sp.min, sp.max) then
+        ms, msIdx, msName = sp, i, SPECIAL_DEF[i].name
+        break
+      end
+    end
+    if not ms then
+      local rm = P.manaSpecial
+      if (rm.id or 0) > 0 and inRange(mp, rm.min, rm.max) then
+        ms, msIdx, msName = rm, 0, MSPECIAL_DEF.name
+      end
+    end
+    if msIdx ~= mSpecIdx then
+      mSpecIdx = msIdx
       mSpecStart = now
       lastMSpecTry = NEVER
     end
-    local msActive = inMs and now - mSpecStart <= (P.specialWindow or 400)
+    local msActive = ms ~= nil and now - mSpecStart <= (P.specialWindow or 400)
 
     -- 3) Vida o mana segun el modo
     local h, m = P.health, P.mana
@@ -8982,7 +9013,7 @@ PzKinaWindow < MainWindow
         if ready(lastMSpecTry, P.specialRetry) and not hold then
           usePotion(ms.id)
           lastMSpecTry = now
-          act("Pocion " .. MSPECIAL_DEF.name, "#88ccff")
+          act("Pocion " .. msName, "#88ccff")
         end
       elseif ready(lastMana, m.delay) and not hold then
         usePotion(m.id, "Pocion de mana", "#88ccff")
