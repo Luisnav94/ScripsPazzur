@@ -1,9 +1,16 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 69)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 70)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v70
+--   - Auto Loot mas rapido en pelea: lootea al instante los cuerpos
+--     pegados y deja los lejanos para cuando termina la pelea (antes
+--     intentaba caminar en plena pelea, perdia tiempo y los soltaba).
+--     Va al cuerpo MAS CERCANO primero, los que fallan vuelven a la cola
+--     y ya lootea bien 2 mobs iguales muertos en el mismo sqm.
 --
 --  CAMBIOS v69
 --   - Auto Loot: corregido el error "attempt to call global 'next'"
@@ -27,14 +34,6 @@
 --     cambia, solo donde aparece.
 --   - Ventanas mas cortas: War Healer Pazzur (hechizos en su propia
 --     ventana) y Dynamic Lure (Avanzado en su propia ventana).
---
---  CAMBIOS v66
---   - Quitado "Rainbow Outfit" (no sirve en este OT).
---   - Historial de cambios recortado: solo las ultimas versiones.
---   - Limpieza interna: una sola funcion trim y un solo lector de
---     mensajes del servidor para todos los scripts (antes 9 y 8).
---   - War Healer Pazzur: Fuerte y Normal esperan el cooldown real de
---     curacion; ya no se pierden hechizos por exhaust.
 --
 --  INDICE  (pestana - script)
 --   MAIN   - 0. Profesion | 1. Exercise Trainer | 2. Smart Imbue
@@ -5042,6 +5041,9 @@ end
 --    dentro de ella.
 --  - Seguridad: distancia maxima al cuerpo, esperar si hay mobs cerca,
 --    cap minima, pausa con PK en pantalla.
+--  - En pelea solo lootea los cuerpos PEGADOS (1 sqm, sin caminar).
+--    Al terminar la pelea camina a los demas, del mas cercano al mas
+--    lejano. Si uno no se puede abrir vuelve a la cola (no se pierde).
 --  - Mientras abre y saca el loot, frena el CaveBot un momento.
 --  IMPORTANTE: apaga el "Looting" del TargetBot de vBot para que no
 --  looteen los dos a la vez.
@@ -5052,7 +5054,7 @@ do
   local DEF = {
     enabled = false, bpId = 0, items = {}, lootAll = false, coins = true,
     skipNames = "", maxDist = 6, waitMobs = 0, minCap = 0,
-    onlyMine = false, pausePk = true, closeCorpse = true,
+    onlyMine = false, pausePk = true, closeCorpse = true, fightAdjacent = true,
   }
   if type(storage[AK]) ~= "table" then storage[AK] = {} end
   local ac = storage[AK]
@@ -5061,7 +5063,7 @@ do
   g_ui.loadUIFromString([[
 AutoLootWindow < MainWindow
   !text: tr('Auto Loot')
-  size: 420 640
+  size: 420 668
   @onEscape: self:hide()
 
   VbTitle
@@ -5240,9 +5242,17 @@ AutoLootWindow < MainWindow
     margin-top: 6
     text: Cerrar el cuerpo al terminar
 
+  CheckBox
+    id: fightAdjacent
+    anchors.top: closeCorpse.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: En pelea solo cuerpos pegados (los demas al terminar)
+
   VbHint
     id: hTb
-    anchors.top: closeCorpse.bottom
+    anchors.top: fightAdjacent.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
@@ -5302,7 +5312,7 @@ AutoLootWindow < MainWindow
     aWin[id]:setValue(ac[id] or 0)
     aWin[id].onValueChange = function(w, v) ac[id] = v end
   end
-  for _, id in ipairs({"lootAll", "coins", "onlyMine", "pausePk", "closeCorpse"}) do bindCheck(id) end
+  for _, id in ipairs({"lootAll", "coins", "onlyMine", "pausePk", "closeCorpse", "fightAdjacent"}) do bindCheck(id) end
   for _, id in ipairs({"maxDist", "waitMobs", "minCap"}) do bindSpin(id) end
   aWin.skipNames:setText(ac.skipNames or "")
   aWin.skipNames.onTextChange = function(w, t) ac.skipNames = t end
@@ -5377,7 +5387,7 @@ AutoLootWindow < MainWindow
   local queue = {}          -- {pos, name, at}
   local seenDead = {}       -- [creatureId] = at
   local attacked = {}       -- [creatureId] = ultima vez que lo ataque
-  local looted = {}         -- [posKey:corpseId] = at
+  local opened = {}         -- cuerpos ya looteados: {obj, at}
 
   local function onDeath(cr)
     if not ac.enabled then return end
@@ -5407,9 +5417,22 @@ AutoLootWindow < MainWindow
   local lastOpenBp, capBlockUntil = NEVER, NEVER
   local fullUntil, lastDestCid = {}, nil   -- BPs que el servidor dijo llenas
 
-  local function finish(markLooted)
+  local function wasOpened(obj)
+    for _, o in ipairs(opened) do if o.obj == obj then return true end end
+    return false
+  end
+
+  -- done = true: cuerpo terminado. false: no se pudo, vuelve a la cola
+  -- (se reintenta despues, hasta 4 veces y 2 minutos).
+  local function finish(done)
     if cur then
-      if markLooted and cur.corpseId then looted[posKey(cur.pos) .. ":" .. cur.corpseId] = now end
+      if done then
+        if cur.obj then table.insert(opened, {obj = cur.obj, at = now}) end
+      elseif cur.entry then
+        local e = cur.entry
+        e.tries = (e.tries or 0) + 1
+        if e.tries < 4 then table.insert(queue, e) end
+      end
       if cur.cid and ac.closeCorpse then
         local c = g_game.getContainer(cur.cid)
         if c then pcall(function() g_game.close(c) end) end
@@ -5440,7 +5463,7 @@ AutoLootWindow < MainWindow
     local items = tile:getItems() or {}
     for i = #items, 1, -1 do
       local it = items[i]
-      if it:isContainer() and not looted[posKey(pos) .. ":" .. it:getId()] then
+      if it:isContainer() and not wasOpened(it) then
         local okp, pick = pcall(function() return it:isPickupable() end)
         if not (okp and pick) then return it end   -- los cuerpos no se levantan
       end
@@ -5509,6 +5532,29 @@ AutoLootWindow < MainWindow
     return false
   end
 
+  -- En pelea = atacando a un monstruo vivo o con mobs a 2 sqm
+  local function inFight()
+    local t = g_game.getAttackingCreature()
+    if t then
+      local ok, alive = pcall(function() return t:isMonster() and (t:getHealthPercent() or 0) > 0 end)
+      if ok and alive then return true end
+    end
+    return mobsNear(2)
+  end
+
+  local function walkTo(pos)
+    local ok = pcall(function() autoWalk(pos, 20, {ignoreNonPathable = true, precision = 1}) end)
+    if not ok then pcall(function() player:autoWalk(pos) end) end
+  end
+
+  local function openCorpse(it)
+    cur.before = {}
+    for cid in pairs(g_game.getContainers()) do cur.before[cid] = true end
+    cur.phase, cur.openAt, cur.obj, cur.corpseId = "open", now, it, it:getId()
+    g_game.open(it, nil)
+    setSt("Abriendo " .. (cur.name or "cuerpo"), "#88ccff")
+  end
+
   macro(100, function()
     if not ac.enabled or not g_game.isOnline() then return end
 
@@ -5521,7 +5567,8 @@ AutoLootWindow < MainWindow
     -- Limpieza
     for k, t in pairs(seenDead) do if now - t > 60000 then seenDead[k] = nil end end
     for k, t in pairs(attacked) do if now - t > 60000 then attacked[k] = nil end end
-    for k, t in pairs(looted) do if now - t > 180000 then looted[k] = nil end end
+    for i = #opened, 1, -1 do if now - opened[i].at > 180000 then table.remove(opened, i) end end
+    for i = #queue, 1, -1 do if now - queue[i].at > 120000 then table.remove(queue, i) end end
 
     if ac.pausePk and #Shared.pkList() > 0 then setSt("Pausa: PK en pantalla", "#ffaa44"); return end
     if now < capBlockUntil or ((ac.minCap or 0) > 0 and myCap() < ac.minCap) then
@@ -5533,6 +5580,7 @@ AutoLootWindow < MainWindow
     end
 
     local me = player:getPosition()
+    local fight = ac.fightAdjacent ~= false and inFight()
 
     -- 1) Cuerpo abierto: sacar items de a uno
     if cur and cur.cid then
@@ -5556,8 +5604,26 @@ AutoLootWindow < MainWindow
       return
     end
 
-    -- 2) Esperando que se abra el cuerpo
+    -- 2) Cuerpo en camino: caminando hacia el o esperando que se abra
     if cur then
+      local d = dist(me, cur.pos)
+      if cur.phase == "walk" then
+        if fight then finish(false); return end          -- volvio la pelea: despues
+        holdCaveBot()
+        if d <= 1 then
+          local it = corpseAt(cur.pos)
+          if not it then finish(true); return end
+          openCorpse(it)
+          return
+        end
+        if now - cur.walkAt > 1200 + d * 400 then
+          if cur.walkTries >= 2 then finish(false); return end
+          walkTo(cur.pos)
+          cur.walkAt, cur.walkTries = now, cur.walkTries + 1
+        end
+        return
+      end
+      -- fase "open"
       holdCaveBot()
       for cid, c in pairs(g_game.getContainers()) do
         local ci = c.getContainerItem and c:getContainerItem()
@@ -5566,47 +5632,60 @@ AutoLootWindow < MainWindow
           return
         end
       end
-      local wait = 1500 + dist(me, cur.pos) * 300
-      if now - cur.openAt > wait then
-        if cur.tries >= 3 then finish(true); return end
-        local it = corpseAt(cur.pos)
-        if not it then finish(false); return end
-        if dist(me, cur.pos) > 1 then
-          pcall(function() autoWalk(cur.pos, 20, {ignoreNonPathable = true, precision = 1}) end)
+      if now - cur.openAt > 1200 then
+        if d > 1 then
+          if fight then finish(false); return end
+          cur.phase, cur.walkAt, cur.walkTries = "walk", now, 1
+          walkTo(cur.pos)
+          return
         end
-        g_game.open(it, nil)
-        cur.openAt, cur.tries = now, cur.tries + 1
+        if cur.openTries >= 3 then finish(false); return end
+        local it = corpseAt(cur.pos)
+        if not it then finish(true); return end
+        cur.openTries = cur.openTries + 1
+        openCorpse(it)
       end
       return
     end
 
-    -- 3) Siguiente cuerpo de la cola
-    while #queue > 0 do
-      local q = queue[1]
-      if now - q.at > 120000 or dist(me, q.pos) > (ac.maxDist or 6) then
-        table.remove(queue, 1)
-      else
-        local it = corpseAt(q.pos)
-        if not it then
-          if now - q.at > 2000 then table.remove(queue, 1) else return end
-        else
-          table.remove(queue, 1)
-          if not ac.lootAll and isEmpty(wantedSet()) then
-            setSt("Lista vacia: agrega items o marca Recoger TODO", "#ffaa44")
-            return
-          end
-          local before = {}
-          for cid in pairs(g_game.getContainers()) do before[cid] = true end
-          cur = {pos = q.pos, name = q.name, corpseId = it:getId(), openAt = now,
-                 tries = 1, before = before}
-          holdCaveBot()
-          g_game.open(it, nil)
-          setSt("Abriendo " .. q.name, "#88ccff")
-          return
-        end
+    -- 3) Siguiente cuerpo: el MAS CERCANO. En pelea, solo los pegados.
+    local bestI, bestD
+    for i, q in ipairs(queue) do
+      local d = dist(me, q.pos)
+      if d <= (ac.maxDist or 6) and (not fight or d <= 1) and (not bestD or d < bestD) then
+        bestI, bestD = i, d
       end
     end
-    if lastSt ~= "Activo" and not lastSt:find("^Lista") then setSt("Activo", "#66ff66") end
+    if not bestI then
+      local pending = 0
+      for _, q in ipairs(queue) do if dist(me, q.pos) <= (ac.maxDist or 6) then pending = pending + 1 end end
+      if fight and pending > 0 then
+        setSt("Peleando: " .. pending .. " cuerpo(s) para despues", "#ffcc66")
+      elseif lastSt ~= "Activo" and not lastSt:find("^Lista") then
+        setSt("Activo", "#66ff66")
+      end
+      return
+    end
+    local q = queue[bestI]
+    local it = corpseAt(q.pos)
+    if not it then
+      if now - q.at > 2500 then table.remove(queue, bestI) end
+      return
+    end
+    table.remove(queue, bestI)
+    if not ac.lootAll and isEmpty(wantedSet()) then
+      setSt("Lista vacia: agrega items o marca Recoger TODO", "#ffaa44")
+      return
+    end
+    cur = {entry = q, pos = q.pos, name = q.name, openTries = 1, walkTries = 0}
+    holdCaveBot()
+    if bestD <= 1 then
+      openCorpse(it)
+    else
+      cur.phase, cur.walkAt, cur.walkTries = "walk", now, 1
+      walkTo(q.pos)
+      setSt("Yendo a " .. q.name, "#88ccff")
+    end
   end)
 end
 
