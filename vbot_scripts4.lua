@@ -1,9 +1,29 @@
 -- =====================================================================
---  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 62)
+--  VBOT - TODOS LOS SCRIPTS UNIFICADOS  (version 64)
 --  vBot 4.8 / OTCv8
 --
 --  - Cada seccion va en su propio bloque "do ... end".
 --  - Todos estos scripts se colocan AL PRINCIPIO de cada pestana.
+--
+--  CAMBIOS v64
+--   - "Kina War Healer" pasa a ser "War Healer Pazzur" para TODAS las
+--     vocaciones: un perfil para Knight, otro para Paladin y otro para
+--     Mago (Druid y Sorcerer). Se elige solo segun el personaje. Tu
+--     config del Kina queda como perfil Knight, igual que estaba.
+--   - Pocion de mana normal y especial "Rec. Mana" (11766) por rango
+--     de MP, con la misma ventana de prioridad que las especiales de vida.
+--   - Modo de pociones VIDA / MANA / AUTO (boton y hotkey opcional) y
+--     HP de emergencia: con MANA o AUTO la vida siempre gana por debajo.
+--   - Hechizos con mana minima y pausa entre hechizos opcional.
+--
+--  CAMBIOS v63
+--   - NUEVO "Rainbow Outfit" (pestana Tools): cambia los colores del
+--     outfit (cabeza, cuerpo, piernas, pies) en modo Arcoiris, Escalonado
+--     o Aleatorio. Intervalo minimo 500 ms (por defecto 1000) para no
+--     saturar al servidor. Espera 1.5 s tras cada cambio de equipo del
+--     EquipCore para no confundir su deteccion de "exhausted". Si el
+--     servidor responde "exhausted" al cambio de outfit, sube solo el
+--     intervalo. Al apagarlo devuelve tus colores originales.
 --
 --  CAMBIOS v62
 --   - Equipo Auto: 3 modos (PK -> PVP -> CAVE), cada uno con su propio set
@@ -367,11 +387,12 @@
 --   7. TOOLS - Safe Anti-Push (monedas / comida)
 --   8. CAVE  - Attack Bot (todas las profesiones)
 --   9. MAIN  - PAZZUR: Auto Cast + Unban, Auto Bank, Auto Stamina
---  10. HP    - PAZZUR: Set Ataque/Defensa, Kina War Healer, Alarma PK
+--  10. HP    - PAZZUR: Set Ataque/Defensa, War Healer Pazzur, Alarma PK
 --  11. HP    - Auto Comida (4 casillas, reemplaza al Eat Food de vBot)
 --  13. TOOLS - Exiva en el minimapa
 --  14. TOOLS - Exani Hur (levitar arriba / abajo)
 --  15. TOOLS - Auto Follow MC (cola de nombres, sube gradas/escaleras)
+--  16. TOOLS - Rainbow Outfit (colores del outfit en arcoiris)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -571,6 +592,7 @@ local Shared = {
   lastSupport    = -1000000,
   supportBlock   = 0,
   supportReserve = 0,   -- Exani Hur "aparta" el turno: los demas esperan
+  lastEquipMove  = -1000000,   -- ultimo movimiento del EquipCore (Rainbow espera)
 }
 local SUPPORT_GAP = 2000
 -- ignoreReserve = true solo lo usa quien hizo la reserva (Exani Hur)
@@ -919,6 +941,7 @@ do
       pending[slot] = {id = id, t = now, prevId = prevId}
       ownMove[slot] = now
       lastAction = now
+      Shared.lastEquipMove = now
 
       local srcCid = containerOf(item)
       if EquipCore.keepBag() and srcCid and cur and prevId > 0
@@ -946,6 +969,7 @@ do
       if ok then
         hotkeyTries[id] = {n = (ht and ht.n or 0) + 1, t = now}
         lastAction = now
+        Shared.lastEquipMove = now
         pending[slot] = {id = id, t = now, prevId = prevId}
         ownMove[slot] = now
         nextTry[slot] = now + HOTKEY_RETRY
@@ -7644,7 +7668,7 @@ end -- fin: 9. MAIN - PAZZUR
 endSection(__sec)
 
 -- #####################################################################
--- 10. HP - PAZZUR: Set Ataque/Defensa, Kina War Healer y Alarma PK
+-- 10. HP - PAZZUR: Set Ataque/Defensa, War Healer Pazzur y Alarma PK
 -- #####################################################################
 __sec = startSection("HP")
 do
@@ -8086,16 +8110,25 @@ PzSetWindow < MainWindow
 end
 
 -- ============================================================
--- KINA WAR HEALER (Pazzur)
---  POCIONES
---   - Especiales por rango de HP (Inmortal, Recovery, Adrenalina):
---     al entrar en su rango tienen prioridad durante una ventana
---     corta; despues vuelve la pocion de vida.
---   - Pocion de vida con HP <= X (nunca queda desactivada).
+-- WAR HEALER PAZZUR (antes "Kina War Healer") - TODAS LAS VOCACIONES
+--  PERFILES: uno por vocacion: Knight, Paladin y Mago (Druid y
+--  Sorcerer comparten). Monk usa el de Knight. Se elige solo segun
+--  el personaje (seccion Profesion). Lo que tenias configurado en el
+--  Kina War Healer queda como perfil Knight, sin cambios.
+--  POCIONES (comparten exhaust: entra 1 por turno)
+--   - Especiales de vida por rango de HP (Inmortal, Recovery,
+--     Adrenalina) y especial de mana por rango de MP (Recovery Mana):
+--     al entrar en su rango tienen prioridad durante una ventana corta.
+--   - Modo de las pociones normales:
+--       VIDA : vida primero; mana solo si la vida esta bien.
+--       MANA : mana primero; vida solo con HP <= "emergencia".
+--       AUTO : la mas necesitada; con HP <= "emergencia" gana la vida.
+--     Se cambia con el boton de la ventana o con una hotkey.
 --  HECHIZOS
---   - Critico (ultimate tempo): prioridad absoluta en su rango.
---   - Fuerte (exana gran mort): si esta en cooldown usa el Normal.
---   - Normal (exana mort).
+--   - Critico: prioridad absoluta en su rango.
+--   - Fuerte: si esta en cooldown o sin mana, usa el Normal.
+--   - Mana minima por hechizo (0 = no revisa).
+--   - Pausa entre hechizos (exhaust de curacion; 0 = como antes).
 --  Se pausa si "War Healer" esta activo (no usar los dos juntos).
 -- ============================================================
 do
@@ -8105,26 +8138,96 @@ do
     {key = "recovery",   name = "Recovery",   id = 11767, min = 21, max = 35},
     {key = "adrenalina", name = "Adrenalina", id = 11846, min = 36, max = 55},
   }
+  local MSPECIAL_DEF = {name = "Rec. Mana", id = 11766, min = 1, max = 30}
   local SPELL_DEF = {
-    {key = "ultimate", name = "Critico", words = "ultimate tempo",  min = 1,  max = 18, delay = 500},
-    {key = "gran",     name = "Fuerte",  words = "exana gran mort", min = 19, max = 45, delay = 15000},
-    {key = "mort",     name = "Normal",  words = "exana mort",      min = 19, max = 65, delay = 1000},
+    {key = "ultimate", name = "Critico"},
+    {key = "gran",     name = "Fuerte"},
+    {key = "mort",     name = "Normal"},
   }
+  local PROFILES  = {"knight", "paladin", "mage"}
+  local PROF_NAME = {knight = "Knight", paladin = "Paladin", mage = "Mago"}
+  local MODES     = {"life", "mana", "auto"}
+  local MODE_TXT  = {life = "VIDA", mana = "MANA", auto = "AUTO"}
 
-  if type(storage[KK]) ~= "table" then
-    storage[KK] = {enabled = false}
+  -- Valores por defecto de cada perfil
+  local function defaults(p)
+    local d = {
+      health = {id = 7643, hp = 96, delay = 200},
+      mana   = {id = 0,    mp = 40, delay = 200},
+      mode = "life", emergHp = 50, spellGap = 0,
+      specialWindow = 400, specialRetry = 300,
+      specials = {},
+      manaSpecial = {id = 0, min = MSPECIAL_DEF.min, max = MSPECIAL_DEF.max},
+      spells = {
+        ultimate = {words = "ultimate tempo",  min = 1,  max = 18, delay = 500,   mana = 0},
+        gran     = {words = "exana gran mort", min = 19, max = 45, delay = 15000, mana = 0},
+        mort     = {words = "exana mort",      min = 19, max = 65, delay = 1000,  mana = 0},
+      },
+    }
+    for i, s in ipairs(SPECIAL_DEF) do
+      d.specials[i] = {id = s.id, min = s.min, max = s.max}
+    end
+    if p == "paladin" then
+      d.health = {id = 7642, hp = 85, delay = 200}
+      d.mana   = {id = 238,  mp = 50, delay = 200}
+      d.mode, d.emergHp, d.spellGap = "auto", 50, 1000
+      d.manaSpecial.id = MSPECIAL_DEF.id
+      d.spells = {
+        ultimate = {words = "",               min = 1, max = 18, delay = 500,  mana = 0},
+        gran     = {words = "exura gran san", min = 1, max = 60, delay = 1000, mana = 210},
+        mort     = {words = "exura san",      min = 1, max = 90, delay = 1000, mana = 160},
+      }
+    elseif p == "mage" then
+      d.health = {id = 266, hp = 60, delay = 200}
+      d.mana   = {id = 238, mp = 70, delay = 200}
+      d.mode, d.emergHp, d.spellGap = "auto", 45, 1000
+      d.manaSpecial.id = MSPECIAL_DEF.id
+      d.spells = {
+        ultimate = {words = "",           min = 1, max = 18, delay = 500,  mana = 0},
+        gran     = {words = "exura vita", min = 1, max = 50, delay = 1000, mana = 160},
+        mort     = {words = "exura gran", min = 1, max = 80, delay = 1000, mana = 70},
+      }
+    end
+    return d
   end
+
+  -- Completa lo que falte sin pisar lo que ya tienes
+  local function fill(t, d)
+    for k, v in pairs(d) do
+      if t[k] == nil then
+        if type(v) == "table" then t[k] = {}; fill(t[k], v) else t[k] = v end
+      elseif type(v) == "table" and type(t[k]) == "table" then
+        fill(t[k], v)
+      end
+    end
+  end
+  local function setTo(t, d)
+    for k in pairs(t) do t[k] = nil end
+    fill(t, d)
+  end
+
+  if type(storage[KK]) ~= "table" then storage[KK] = {enabled = false} end
   local kc = storage[KK]
-  kc.health = kc.health or {id = 7643, hp = 96, delay = 200}
-  kc.specialRetry = kc.specialRetry or 300
-  kc.specialWindow = kc.specialWindow or 400
-  kc.specials = kc.specials or {}
-  kc.spells = kc.spells or {}
-  for i, d in ipairs(SPECIAL_DEF) do
-    kc.specials[i] = kc.specials[i] or {id = d.id, min = d.min, max = d.max}
+  kc.profiles = kc.profiles or {}
+  -- Config vieja del Kina War Healer -> perfil Knight (una sola vez)
+  if not kc.profiles.knight and type(kc.health) == "table" then
+    kc.profiles.knight = {
+      health = kc.health, specials = kc.specials, spells = kc.spells,
+      specialWindow = kc.specialWindow, specialRetry = kc.specialRetry,
+    }
   end
-  for _, d in ipairs(SPELL_DEF) do
-    kc.spells[d.key] = kc.spells[d.key] or {words = d.words, min = d.min, max = d.max, delay = d.delay}
+  for _, p in ipairs(PROFILES) do
+    kc.profiles[p] = kc.profiles[p] or {}
+    fill(kc.profiles[p], defaults(p))
+  end
+  kc.modeKey = kc.modeKey or ""
+
+  local function activeProfile()
+    local ok, v = pcall(function() return Prof.get() end)
+    v = ok and v or "knight"
+    if v == "sorcerer" or v == "druid" then return "mage" end
+    if v == "paladin" then return "paladin" end
+    return "knight"
   end
 
   g_ui.loadUIFromString([[
@@ -8187,7 +8290,7 @@ PzSpellRow < Panel
     id: words
     anchors.left: name.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 110
+    width: 96
     height: 20
     !tooltip: tr('Palabras del hechizo (vacio = apagado)')
 
@@ -8235,22 +8338,108 @@ PzSpellRow < Panel
     id: delay
     anchors.left: lDelay.right
     anchors.verticalCenter: parent.verticalCenter
-    width: 62
+    width: 58
     minimum: 100
     maximum: 600000
     step: 100
     !tooltip: tr('Cooldown / pausa entre usos en milisegundos')
 
+  Label
+    id: lMana
+    anchors.left: delay.right
+    anchors.verticalCenter: parent.verticalCenter
+    margin-left: 6
+    width: 28
+    text: MP>=
+
+  SpinBox
+    id: mana
+    anchors.left: lMana.right
+    anchors.verticalCenter: parent.verticalCenter
+    width: 46
+    minimum: 0
+    maximum: 99999
+    step: 10
+    !tooltip: tr('Mana minima para lanzarlo (0 = no revisa)')
+
 PzKinaWindow < MainWindow
-  !text: tr('Kina War Healer (Pazzur)')
-  size: 440 600
+  !text: tr('War Healer Pazzur')
+  size: 490 790
   @onEscape: self:hide()
+
+  Label
+    id: profInfo
+    anchors.top: parent.top
+    anchors.left: parent.left
+    anchors.right: profBtn.left
+    margin-right: 6
+    height: 20
+    color: #66ff66
+    text: Usando: Knight
+
+  Button
+    id: profBtn
+    anchors.top: parent.top
+    anchors.right: parent.right
+    width: 170
+    height: 20
+    text: Editando: Knight
+    !tooltip: tr('Cambia que perfil ves y editas en esta ventana')
+
+  Button
+    id: modeBtn
+    anchors.top: profBtn.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    height: 22
+    text: Modo pociones: VIDA
+
+  Label
+    id: lEmerg
+    anchors.top: modeBtn.bottom
+    anchors.left: parent.left
+    margin-top: 12
+    width: 250
+    text: Vida de emergencia (modo MANA/AUTO) HP % <=
+
+  SpinBox
+    id: emergHp
+    anchors.verticalCenter: lEmerg.verticalCenter
+    anchors.left: lEmerg.right
+    width: 45
+    minimum: 0
+    maximum: 100
+
+  Label
+    id: lModeKey
+    anchors.top: lEmerg.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 250
+    text: Hotkey para cambiar el modo (opcional):
+
+  TextEdit
+    id: modeKey
+    anchors.verticalCenter: lModeKey.verticalCenter
+    anchors.left: lModeKey.right
+    width: 80
+    height: 20
+    !tooltip: tr('Ej: F6 o Ctrl+F6. Vacio = sin hotkey')
+
+  HorizontalSeparator
+    id: sep0
+    anchors.top: lModeKey.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 10
 
   VbTitle
     id: tHealth
-    anchors.top: parent.top
+    anchors.top: sep0.bottom
     anchors.left: parent.left
-    text: Pocion de vida
+    margin-top: 6
+    text: Pociones normales
 
   BotItem
     id: healthItem
@@ -8291,9 +8480,48 @@ PzKinaWindow < MainWindow
     maximum: 5000
     step: 50
 
+  BotItem
+    id: manaItem
+    anchors.top: healthItem.bottom
+    anchors.left: parent.left
+    margin-top: 4
+
+  Label
+    id: lManaMp
+    anchors.verticalCenter: manaItem.verticalCenter
+    anchors.left: manaItem.right
+    margin-left: 8
+    width: 50
+    text: MP <=
+
+  SpinBox
+    id: manaMp
+    anchors.verticalCenter: manaItem.verticalCenter
+    anchors.left: lManaMp.right
+    width: 45
+    minimum: 0
+    maximum: 100
+
+  Label
+    id: lManaDelay
+    anchors.verticalCenter: manaItem.verticalCenter
+    anchors.left: manaMp.right
+    margin-left: 12
+    width: 60
+    text: cada (ms)
+
+  SpinBox
+    id: manaDelay
+    anchors.verticalCenter: manaItem.verticalCenter
+    anchors.left: lManaDelay.right
+    width: 55
+    minimum: 100
+    maximum: 5000
+    step: 50
+
   HorizontalSeparator
     id: sep1
-    anchors.top: healthItem.bottom
+    anchors.top: manaItem.bottom
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 8
@@ -8311,7 +8539,7 @@ PzKinaWindow < MainWindow
     anchors.left: parent.left
     anchors.right: parent.right
     margin-top: 4
-    height: 112
+    height: 150
     layout:
       type: verticalBox
       spacing: 2
@@ -8321,8 +8549,8 @@ PzKinaWindow < MainWindow
     anchors.top: specials.bottom
     anchors.left: parent.left
     margin-top: 8
-    width: 220
-    text: Prioridad sobre la de vida (ms)
+    width: 250
+    text: Prioridad de la especial (ms)
 
   SpinBox
     id: specialWindow
@@ -8338,7 +8566,7 @@ PzKinaWindow < MainWindow
     anchors.top: lWindow.bottom
     anchors.left: parent.left
     margin-top: 12
-    width: 220
+    width: 250
     text: Reintento pocion especial (ms)
 
   SpinBox
@@ -8375,13 +8603,30 @@ PzKinaWindow < MainWindow
       type: verticalBox
       spacing: 2
 
-  VbHint
-    id: hint
+  Label
+    id: lGap
     anchors.top: spells.bottom
     anchors.left: parent.left
+    margin-top: 8
+    width: 250
+    text: Pausa entre hechizos (ms, 0 = no)
+
+  SpinBox
+    id: spellGap
+    anchors.verticalCenter: lGap.verticalCenter
+    anchors.left: lGap.right
+    width: 60
+    minimum: 0
+    maximum: 5000
+    step: 100
+
+  VbHint
+    id: hint
+    anchors.top: lGap.bottom
+    anchors.left: parent.left
     anchors.right: parent.right
-    margin-top: 4
-    text: Critico tiene prioridad absoluta en su rango. Fuerte va primero en su rango y, si esta en cooldown, usa Normal. Item o hechizo vacio = apagado.
+    margin-top: 8
+    text: Critico tiene prioridad absoluta en su rango. Fuerte va primero en su rango y, si esta en cooldown o sin mana, usa Normal. Item o hechizo vacio = apagado.
 
   HorizontalSeparator
     id: sepBottom
@@ -8421,10 +8666,9 @@ PzKinaWindow < MainWindow
     text: Cerrar
 ]])
 
-  local kUI = UIx.scriptPanel("Kina War Healer")
+  local kUI = UIx.scriptPanel("War Healer Pazzur")
   local kWin = UI.createWindow('PzKinaWindow', rootWidget)
   kWin:hide()
-
   local NEVER = -100000000
   local lastStatus, lastActAt = "", NEVER
   local function setStatus(t, c)
@@ -8435,60 +8679,118 @@ PzKinaWindow < MainWindow
   end
   local function act(t, c) lastActAt = now; setStatus(t, c) end
 
-  -- Pocion de vida
-  local h = kc.health
-  kWin.healthItem.onItemChange = function(w) h.id = w:getItemId() end
-  kWin.healthHp.onValueChange = function(w, v) h.hp = v end
-  kWin.healthDelay.onValueChange = function(w, v) h.delay = v end
-  kWin.specialWindow.onValueChange = function(w, v) kc.specialWindow = v end
-  kWin.specialRetry.onValueChange = function(w, v) kc.specialRetry = v end
+  -- Perfil que se ve/edita en la ventana (empieza en el que se usa)
+  local editKey = activeProfile()
+  local function E() return kc.profiles[editKey] end
+  local loading = false
 
-  -- Filas de pociones especiales
+  -- ----- Uniones de la ventana (siempre escriben en el perfil editado) -----
+  local function bindSpin(w, getT, key)
+    w.onValueChange = function(_, v) if not loading then getT()[key] = v end end
+  end
+  kWin.healthItem.onItemChange = function(w) if not loading then E().health.id = w:getItemId() end end
+  kWin.manaItem.onItemChange   = function(w) if not loading then E().mana.id = w:getItemId() end end
+  bindSpin(kWin.healthHp,    function() return E().health end, "hp")
+  bindSpin(kWin.healthDelay, function() return E().health end, "delay")
+  bindSpin(kWin.manaMp,      function() return E().mana end,   "mp")
+  bindSpin(kWin.manaDelay,   function() return E().mana end,   "delay")
+  bindSpin(kWin.emergHp,       E, "emergHp")
+  bindSpin(kWin.specialWindow, E, "specialWindow")
+  bindSpin(kWin.specialRetry,  E, "specialRetry")
+  bindSpin(kWin.spellGap,      E, "spellGap")
+  kWin.modeKey:setText(kc.modeKey)
+  kWin.modeKey.onTextChange = function(w, t) kc.modeKey = t end
+
+  -- Filas de pociones especiales (3 de vida + 1 de mana)
   local specialRows = {}
   for i, d in ipairs(SPECIAL_DEF) do
     local row = UI.createWidget('PzSpecialRow', kWin.specials)
-    local sp = kc.specials[i]
     row.name:setText(d.name)
-    row.item.onItemChange = function(w) sp.id = w:getItemId() end
-    row.min.onValueChange = function(w, v) sp.min = v end
-    row.max.onValueChange = function(w, v) sp.max = v end
+    local idx = i
+    row.item.onItemChange = function(w) if not loading then E().specials[idx].id = w:getItemId() end end
+    bindSpin(row.min, function() return E().specials[idx] end, "min")
+    bindSpin(row.max, function() return E().specials[idx] end, "max")
     specialRows[i] = row
   end
+  local mRow = UI.createWidget('PzSpecialRow', kWin.specials)
+  mRow.name:setText(MSPECIAL_DEF.name)
+  mRow.lMin:setText("MP de")
+  mRow.item.onItemChange = function(w) if not loading then E().manaSpecial.id = w:getItemId() end end
+  bindSpin(mRow.min, function() return E().manaSpecial end, "min")
+  bindSpin(mRow.max, function() return E().manaSpecial end, "max")
 
   -- Filas de hechizos
   local spellRows = {}
   for _, d in ipairs(SPELL_DEF) do
     local row = UI.createWidget('PzSpellRow', kWin.spells)
-    local s = kc.spells[d.key]
+    local key = d.key
     row.name:setText(d.name)
-    row.words.onTextChange = function(w, t) s.words = t end
-    row.min.onValueChange = function(w, v) s.min = v end
-    row.max.onValueChange = function(w, v) s.max = v end
-    row.delay.onValueChange = function(w, v) s.delay = v end
-    spellRows[d.key] = row
+    row.words.onTextChange = function(w, t) if not loading then E().spells[key].words = t end end
+    bindSpin(row.min,   function() return E().spells[key] end, "min")
+    bindSpin(row.max,   function() return E().spells[key] end, "max")
+    bindSpin(row.delay, function() return E().spells[key] end, "delay")
+    bindSpin(row.mana,  function() return E().spells[key] end, "mana")
+    spellRows[key] = row
+  end
+
+  local function showHeader()
+    local use = activeProfile()
+    kWin.profInfo:setText("Usando: " .. PROF_NAME[use])
+    kWin.profBtn:setText("Editando: " .. PROF_NAME[editKey])
+    kWin.modeBtn:setText("Modo pociones: " .. (MODE_TXT[E().mode] or "VIDA"))
   end
 
   local function loadValues()
-    kWin.healthItem:setItemId(h.id or 0)
-    kWin.healthHp:setValue(h.hp or 0)
-    kWin.healthDelay:setValue(h.delay or 200)
-    kWin.specialWindow:setValue(kc.specialWindow)
-    kWin.specialRetry:setValue(kc.specialRetry)
+    loading = true
+    local P = E()
+    kWin.healthItem:setItemId(P.health.id or 0)
+    kWin.healthHp:setValue(P.health.hp or 0)
+    kWin.healthDelay:setValue(P.health.delay or 200)
+    kWin.manaItem:setItemId(P.mana.id or 0)
+    kWin.manaMp:setValue(P.mana.mp or 0)
+    kWin.manaDelay:setValue(P.mana.delay or 200)
+    kWin.emergHp:setValue(P.emergHp or 0)
+    kWin.specialWindow:setValue(P.specialWindow or 400)
+    kWin.specialRetry:setValue(P.specialRetry or 300)
+    kWin.spellGap:setValue(P.spellGap or 0)
     for i, row in ipairs(specialRows) do
-      local sp = kc.specials[i]
+      local sp = P.specials[i]
       row.item:setItemId(sp.id or 0)
       row.min:setValue(sp.min or 0)
       row.max:setValue(sp.max or 0)
     end
+    mRow.item:setItemId(P.manaSpecial.id or 0)
+    mRow.min:setValue(P.manaSpecial.min or 0)
+    mRow.max:setValue(P.manaSpecial.max or 0)
     for key, row in pairs(spellRows) do
-      local s = kc.spells[key]
+      local s = P.spells[key]
       row.words:setText(s.words or "")
       row.min:setValue(s.min or 0)
       row.max:setValue(s.max or 0)
       row.delay:setValue(s.delay or 1000)
+      row.mana:setValue(s.mana or 0)
     end
+    loading = false
+    showHeader()
   end
   loadValues()
+
+  kWin.profBtn.onClick = function()
+    local i = 1
+    for n, p in ipairs(PROFILES) do if p == editKey then i = n end end
+    editKey = PROFILES[(i % #PROFILES) + 1]
+    loadValues()
+  end
+
+  local function nextMode(P)
+    local i = 1
+    for n, m in ipairs(MODES) do if m == P.mode then i = n end end
+    P.mode = MODES[(i % #MODES) + 1]
+  end
+  kWin.modeBtn.onClick = function()
+    nextMode(E())
+    showHeader()
+  end
 
   local confirmUntil = 0
   kWin.defaultsBtn.onClick = function()
@@ -8500,47 +8802,81 @@ PzKinaWindow < MainWindow
     end
     confirmUntil = 0
     kWin.defaultsBtn:setText("Valores por defecto")
-    h.id, h.hp, h.delay = 7643, 96, 200
-    kc.specialWindow, kc.specialRetry = 400, 300
-    for i, d in ipairs(SPECIAL_DEF) do
-      local sp = kc.specials[i]
-      sp.id, sp.min, sp.max = d.id, d.min, d.max
-    end
-    for _, d in ipairs(SPELL_DEF) do
-      local s = kc.spells[d.key]
-      s.words, s.min, s.max, s.delay = d.words, d.min, d.max, d.delay
-    end
+    setTo(E(), defaults(editKey))   -- solo el perfil que estas editando
     loadValues()
   end
-
   kWin.closeBtn.onClick = function() kWin:hide() end
-  kUI.setupBtn.onClick = function() UIx.toggleWindow(kWin) end
+  kUI.setupBtn.onClick = function()
+    UIx.toggleWindow(kWin, function()
+      editKey = activeProfile()
+      loadValues()
+    end)
+  end
 
+  local function idleText()
+    local pk = activeProfile()
+    return "Activo - " .. PROF_NAME[pk] .. " - " .. (MODE_TXT[kc.profiles[pk].mode] or "VIDA")
+  end
   UIx.bindSwitch(kc, kUI.switch, kWin.enableBtn, function(v)
-    if v then setStatus("Activo", "#66ff66") else setStatus("Inactivo", "#888888") end
+    if v then setStatus(idleText(), "#66ff66") else setStatus("Inactivo", "#888888") end
+  end)
+
+  -- Hotkey: cambia el modo del perfil que se esta usando
+  local function normKey(s)
+    local r = (s or ""):lower():gsub("%s", "")
+    return r
+  end
+  pcall(function()
+    onKeyDown(function(keys)
+      if not kc.enabled then return end
+      local k = normKey(kc.modeKey)
+      if k == "" or normKey(keys) ~= k then return end
+      local pk = activeProfile()
+      nextMode(kc.profiles[pk])
+      if pk == editKey then showHeader() end
+      act("Modo pociones: " .. MODE_TXT[kc.profiles[pk].mode], "#88ccff")
+    end)
   end)
 
   local function warHealerOn()
     local t = storage.warHealerV9
     return type(t) == "table" and t.enabled == true
   end
-
-  local function inRange(hp, a, b) return hp >= (a or 0) and hp <= (b or -1) end
+  local function inRange(v, a, b) return v >= (a or 0) and v <= (b or -1) end
   local function ready(last, delay) return now - last >= (delay or 0) end
+  local function myMana()
+    local ok, m = pcall(function() return mana() end)
+    return (ok and type(m) == "number") and m or 0
+  end
 
-  local lastHealth, lastSpecialTry = NEVER, NEVER
+  local lastHealth, lastMana, lastSpecialTry, lastMSpecTry = NEVER, NEVER, NEVER, NEVER
   local specialIdx, specialStart = nil, 0
+  local mSpecIn, mSpecStart = false, 0
   local lastSpell = {ultimate = NEVER, gran = NEVER, mort = NEVER}
+  local lastAnySpell = NEVER
+  local lastPk = nil
 
-  local function cast(key)
-    local s = kc.spells[key]
+  local function cast(P, key)
+    local s = P.spells[key]
     local w = trim(s.words or ""):lower()
     if w == "" or not ready(lastSpell[key], s.delay) then return false end
+    if (s.mana or 0) > 0 and myMana() < s.mana then
+      if now - lastActAt > 600 then act("Sin mana para " .. w, "#ffaa44") end
+      return false
+    end
     say(w)
     lastSpell[key] = now
+    lastAnySpell = now
     Shared.lastSelfHeal = now
     act("Hechizo: " .. w, "#88ff88")
     return true
+  end
+
+  local function usePotion(id, label, color)
+    useWith(id, player)
+    Shared.lastSelfPotion = now
+    Shared.lastUseId, Shared.lastUseAt = id, now
+    if label and now - lastActAt > 600 then act(label, color) end
   end
 
   macro(100, function()
@@ -8551,55 +8887,110 @@ PzKinaWindow < MainWindow
     end
     local hp = hppercent()
     if not hp or hp <= 0 then return end
+    local mp = manapercent() or 100
+
+    local pk = activeProfile()
+    local P = kc.profiles[pk]
+    if pk ~= lastPk then
+      -- cambio de personaje / vocacion: empezar limpio
+      lastPk = pk
+      lastHealth, lastMana, lastSpecialTry, lastMSpecTry = NEVER, NEVER, NEVER, NEVER
+      specialIdx, mSpecIn = nil, false
+      lastSpell = {ultimate = NEVER, gran = NEVER, mort = NEVER}
+      lastAnySpell = NEVER
+    end
 
     -- ===== CANAL DE HECHIZOS =====
-    local S = kc.spells
-    if trim(S.ultimate.words or "") ~= "" and inRange(hp, S.ultimate.min, S.ultimate.max) then
-      -- Zona critica: solo el hechizo critico (no le roba el exhaust)
-      cast("ultimate")
-    else
-      local done = false
-      if inRange(hp, S.gran.min, S.gran.max) then done = cast("gran") end
-      if not done and inRange(hp, S.mort.min, S.mort.max) then cast("mort") end
+    local S = P.spells
+    if ready(lastAnySpell, P.spellGap) then
+      if trim(S.ultimate.words or "") ~= "" and inRange(hp, S.ultimate.min, S.ultimate.max) then
+        -- Zona critica: solo el hechizo critico (no le roba el exhaust)
+        cast(P, "ultimate")
+      else
+        local done = false
+        if inRange(hp, S.gran.min, S.gran.max) then done = cast(P, "gran") end
+        if not done and inRange(hp, S.mort.min, S.mort.max) then cast(P, "mort") end
+      end
     end
 
     -- ===== CANAL DE POCIONES =====
+    local hold = EquipCore.holdPotion(hp)
+
+    -- 1) Especial de vida por rango de HP (prioridad sobre todo)
     local want, wantIdx
-    for i, sp in ipairs(kc.specials) do
+    for i, sp in ipairs(P.specials) do
       if (sp.id or 0) > 0 and inRange(hp, sp.min, sp.max) then
         want, wantIdx = sp, i
         break
       end
     end
-
-    -- Cambio de zona: nueva ventana de prioridad
     if wantIdx ~= specialIdx then
       specialIdx = wantIdx
       specialStart = now
       lastSpecialTry = NEVER
     end
-
-    if want and now - specialStart <= (kc.specialWindow or 400) then
-      if ready(lastSpecialTry, kc.specialRetry) and not EquipCore.holdPotion(hp) then
-        useWith(want.id, player)
+    if want and now - specialStart <= (P.specialWindow or 400) then
+      if ready(lastSpecialTry, P.specialRetry) and not hold then
+        usePotion(want.id)
         lastSpecialTry = now
-        Shared.lastSelfPotion = now
-        Shared.lastUseId, Shared.lastUseAt = want.id, now
         act("Pocion " .. SPECIAL_DEF[wantIdx].name, "#88ccff")
       end
-      return   -- solo durante la ventana se aparta la pocion de vida
+      return
     end
 
-    if (h.id or 0) > 0 and hp <= (h.hp or 0) and ready(lastHealth, h.delay)
-       and not EquipCore.holdPotion(hp) then
-      useWith(h.id, player)
-      lastHealth = now
-      Shared.lastSelfPotion = now
-      Shared.lastUseId, Shared.lastUseAt = h.id, now
-      if now - lastActAt > 600 then act("Pocion de vida", "#88ff88") end
+    -- 2) Especial de mana: ventana desde que entras en su rango de MP
+    local ms = P.manaSpecial
+    local inMs = (ms.id or 0) > 0 and inRange(mp, ms.min, ms.max)
+    if inMs ~= mSpecIn then
+      mSpecIn = inMs
+      mSpecStart = now
+      lastMSpecTry = NEVER
+    end
+    local msActive = inMs and now - mSpecStart <= (P.specialWindow or 400)
+
+    -- 3) Vida o mana segun el modo
+    local h, m = P.health, P.mana
+    local lifeWant = (h.id or 0) > 0 and hp <= (h.hp or 0)
+    local manaWant = msActive or ((m.id or 0) > 0 and mp <= (m.mp or 0))
+    local emerg = hp <= (P.emergHp or 0)
+    local choice
+    if P.mode == "mana" then
+      if lifeWant and emerg then choice = "life"
+      elseif manaWant then choice = "mana"
+      elseif lifeWant then choice = "life" end
+    elseif P.mode == "auto" then
+      if lifeWant and (emerg or not manaWant) then
+        choice = "life"
+      elseif manaWant and not lifeWant then
+        choice = "mana"
+      elseif lifeWant and manaWant then
+        local manaLimit = math.max((m.id or 0) > 0 and (m.mp or 0) or 0,
+                                   msActive and (ms.max or 0) or 0)
+        choice = ((manaLimit - mp) > ((h.hp or 0) - hp)) and "mana" or "life"
+      end
+    else
+      if lifeWant then choice = "life" elseif manaWant then choice = "mana" end
     end
 
-    if now - lastActAt > 2000 then setStatus("Activo", "#66ff66") end
+    if choice == "life" then
+      if ready(lastHealth, h.delay) and not hold then
+        usePotion(h.id, "Pocion de vida", "#88ff88")
+        lastHealth = now
+      end
+    elseif choice == "mana" then
+      if msActive then
+        if ready(lastMSpecTry, P.specialRetry) and not hold then
+          usePotion(ms.id)
+          lastMSpecTry = now
+          act("Pocion " .. MSPECIAL_DEF.name, "#88ccff")
+        end
+      elseif ready(lastMana, m.delay) and not hold then
+        usePotion(m.id, "Pocion de mana", "#88ccff")
+        lastMana = now
+      end
+    end
+
+    if now - lastActAt > 2000 then setStatus(idleText(), "#66ff66") end
   end)
 end
 
@@ -10646,6 +11037,367 @@ AutoFollowWindow < MainWindow
     if r=="same" then setSt("Siguiendo a "..target:getName(), "#66ccff")
     elseif r=="floor" then setSt("Siguiendo por piso a "..target:getName().."...", "#66ccff")
     else setSt("Perdi a "..target:getName(), "#ffaa44") end
+  end)
+end
+endSection(__sec)
+
+-- =====================================================================
+-- 16. TOOLS - RAINBOW OUTFIT (colores del outfit en arcoiris)
+--  - Cambia los colores de cabeza, cuerpo, piernas y pies (eliges cuales).
+--  - Modos: ARCOIRIS (todas las partes del mismo color, recorriendo los
+--    18 tonos), ESCALONADO (cada parte un tono distinto, efecto degradado)
+--    y ALEATORIO.
+--  - Intensidad 0-6 = fila de la paleta de Tibia (4 = colores mas vivos).
+--  - El cambio de outfit NO comparte exhaust con hechizos, pociones ni
+--    runas. Aun asi:
+--     * intervalo en SEGUNDOS (minimo 1, por defecto 1) para no pasar el
+--       limite de paquetes por segundo del servidor;
+--     * espera 1.5 s despues de cada movimiento del EquipCore, para que
+--       un "exhausted" del outfit no se confunda con un set rechazado;
+--     * si el servidor contesta "exhausted" o "You have to wait a while"
+--       al cambio de outfit, sube solo el intervalo (+1 s, hasta +9 s).
+--  - Al apagarlo devuelve los colores que tenias al encenderlo.
+--  - No toca el tipo de outfit, addons ni montura.
+-- =====================================================================
+__sec = startSection("Tools")
+do
+  local RK = "rainbowOutfitV1"
+  local DEF = {
+    enabled = false, seconds = 1, tone = 4, mode = "rainbow",
+    head = true, body = true, legs = true, feet = true,
+    pausePk = false, restore = true, saved = nil,
+  }
+  if type(storage[RK]) ~= "table" then storage[RK] = {} end
+  local rc = storage[RK]
+  -- de la version en ms a segundos (conserva lo que ya tenias)
+  if rc.seconds == nil and type(rc.interval) == "number" then
+    rc.seconds = math.max(1, math.floor(rc.interval / 1000 + 0.5))
+  end
+  rc.interval = nil
+  for k, v in pairs(DEF) do if rc[k] == nil then rc[k] = v end end
+
+  g_ui.loadUIFromString([[
+RainbowOutfitWindow < MainWindow
+  !text: tr('Rainbow Outfit')
+  size: 360 360
+  @onEscape: self:hide()
+
+  VbTitle
+    id: tParts
+    anchors.top: parent.top
+    anchors.left: parent.left
+    text: Partes a cambiar
+
+  CheckBox
+    id: head
+    anchors.top: tParts.bottom
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-top: 6
+    text: Cabeza
+
+  CheckBox
+    id: body
+    anchors.top: tParts.bottom
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-top: 6
+    text: Cuerpo
+
+  CheckBox
+    id: legs
+    anchors.top: head.bottom
+    anchors.left: parent.left
+    anchors.right: parent.horizontalCenter
+    margin-top: 6
+    text: Piernas
+
+  CheckBox
+    id: feet
+    anchors.top: head.bottom
+    anchors.left: parent.horizontalCenter
+    anchors.right: parent.right
+    margin-top: 6
+    text: Pies
+
+  HorizontalSeparator
+    id: sep1
+    anchors.top: legs.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+
+  VbTitle
+    id: tOpts
+    anchors.top: sep1.bottom
+    anchors.left: parent.left
+    margin-top: 6
+    text: Opciones
+
+  Button
+    id: modeBtn
+    anchors.top: tOpts.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    height: 22
+    text: Modo: ARCOIRIS
+
+  Label
+    id: lInt
+    anchors.top: modeBtn.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 200
+    text: Cambiar cada (segundos)
+
+  SpinBox
+    id: interval
+    anchors.verticalCenter: lInt.verticalCenter
+    anchors.left: lInt.right
+    width: 70
+    minimum: 1
+    maximum: 60
+    step: 1
+
+  Label
+    id: lTone
+    anchors.top: lInt.bottom
+    anchors.left: parent.left
+    margin-top: 14
+    width: 200
+    text: Intensidad (0 palido - 6 oscuro)
+
+  SpinBox
+    id: tone
+    anchors.verticalCenter: lTone.verticalCenter
+    anchors.left: lTone.right
+    width: 70
+    minimum: 0
+    maximum: 6
+
+  CheckBox
+    id: pausePk
+    anchors.top: lTone.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 12
+    text: Pausar si hay PK en pantalla
+
+  CheckBox
+    id: restore
+    anchors.top: pausePk.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 6
+    text: Devolver mis colores al apagar
+
+  VbHint
+    id: hint
+    anchors.top: restore.bottom
+    anchors.left: parent.left
+    anchors.right: parent.right
+    margin-top: 8
+    text: El outfit no comparte exhaust con hechizos ni pociones. Si tu servidor responde exhausted, el intervalo se sube solo.
+
+  VbStatus
+    id: status
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.bottom: enableBtn.top
+    margin-bottom: 6
+    text: Inactivo
+
+  Button
+    id: enableBtn
+    anchors.bottom: parent.bottom
+    anchors.left: parent.left
+    width: 90
+    text: Activar
+
+  Button
+    id: closeBtn
+    anchors.bottom: parent.bottom
+    anchors.right: parent.right
+    width: 70
+    text: Cerrar
+]])
+
+  UIx.header("RAINBOW OUTFIT")
+  local rUI = UIx.scriptPanel("Rainbow Outfit")
+  local rWin = UI.createWindow('RainbowOutfitWindow', rootWidget)
+  rWin:hide()
+
+  local lastSt = ""
+  local function setSt(t, c)
+    if t == lastSt then return end
+    lastSt = t
+    UIx.setLabel(rUI.status, t, c)
+    UIx.setLabel(rWin.status, t, c)
+  end
+
+  -- ----- Paleta de Tibia: 7 filas x 19 columnas (0..132) -----
+  -- Columna 0 = grises; columnas 1..18 = los 18 tonos del arcoiris.
+  local HUES = 18
+  local function colorOf(tone, hue)
+    hue = ((hue - 1) % HUES) + 1          -- 1..18
+    return tone * 19 + hue
+  end
+
+  local MODES = {"rainbow", "steps", "random"}
+  local MODE_TXT = {rainbow = "ARCOIRIS", steps = "ESCALONADO", random = "ALEATORIO"}
+  local PARTS = {"head", "body", "legs", "feet"}
+
+  -- ----- Ventana -----
+  for _, k in ipairs(PARTS) do
+    rWin[k]:setChecked(rc[k] == true)
+    rWin[k].onCheckChange = function(w, v) rc[k] = v end
+  end
+  rWin.pausePk:setChecked(rc.pausePk == true)
+  rWin.pausePk.onCheckChange = function(w, v) rc.pausePk = v end
+  rWin.restore:setChecked(rc.restore == true)
+  rWin.restore.onCheckChange = function(w, v) rc.restore = v end
+
+  local backoff = 0               -- ms extra si el servidor pide esperar
+  local function baseMs() return math.max(1, rc.seconds or 1) * 1000 end
+  local function secTxt(ms)
+    local v = ms / 1000
+    if v == math.floor(v) then return tostring(math.floor(v)) .. " s" end
+    return string.format("%.1f s", v)
+  end
+  rWin.interval:setValue(rc.seconds or 1)
+  rWin.interval.onValueChange = function(w, v) rc.seconds = v; backoff = 0 end
+  rWin.tone:setValue(rc.tone or 4)
+  rWin.tone.onValueChange = function(w, v) rc.tone = v end
+
+  local function showMode()
+    rWin.modeBtn:setText("Modo: " .. (MODE_TXT[rc.mode] or "ARCOIRIS"))
+  end
+  rWin.modeBtn.onClick = function()
+    local i = 1
+    for n, m in ipairs(MODES) do if m == rc.mode then i = n end end
+    rc.mode = MODES[(i % #MODES) + 1]
+    showMode()
+  end
+  showMode()
+
+  rWin.closeBtn.onClick = function() rWin:hide() end
+  rUI.setupBtn.onClick = function() UIx.toggleWindow(rWin) end
+
+  -- ----- Outfit -----
+  local function currentOutfit()
+    local ok, o = pcall(function() return player:getOutfit() end)
+    if ok and type(o) == "table" then return o end
+    return nil
+  end
+
+  local lastChange = -1000000
+  local nextAt = 0
+  local function sendColors(cols)
+    local o = currentOutfit()
+    if not o then return false end
+    local n, same = {}, true
+    for k, v in pairs(o) do n[k] = v end
+    for k, v in pairs(cols) do
+      if n[k] ~= v then same = false end
+      n[k] = v
+    end
+    if same then return true end
+    local ok = pcall(function() g_game.changeOutfit(n) end)
+    if ok then
+      lastChange = now
+      Shared.lastOutfitChange = now
+    end
+    return ok
+  end
+
+  local function saveOriginal()
+    local o = currentOutfit()
+    if o then
+      rc.saved = {head = o.head, body = o.body, legs = o.legs, feet = o.feet}
+    end
+  end
+
+  local function restoreOriginal()
+    if rc.restore and type(rc.saved) == "table" and g_game.isOnline() then
+      sendColors(rc.saved)
+    end
+    rc.saved = nil
+  end
+
+  UIx.bindSwitch(rc, rUI.switch, rWin.enableBtn, function(on)
+    backoff = 0
+    if on then
+      if not rc.saved then saveOriginal() end
+      setSt("Activo", "#66ff66")
+    else
+      if rc.saved then restoreOriginal() end
+      setSt("Inactivo", "#888888")
+    end
+  end)
+
+  -- ----- Si el servidor da exhausted al cambio de outfit -----
+  onTextMessage(function(mode, text)
+    if not rc.enabled then return end
+    local t = (text or ""):lower()
+    if not (t:find("exhaust") or t:find("agotad")
+            or t:find("wait a while") or t:find("have to wait")
+            or t:find("tienes que esperar") or t:find("debes esperar")) then return end
+    if now - lastChange > 800 then return end
+    -- si justo hubo pocion / hechizo / equipo, el exhaust no es nuestro
+    if now - (Shared.lastSelfPotion or -1000000) < 800 then return end
+    if now - (Shared.lastSupport or -1000000) < 800 then return end
+    if now - (Shared.lastSelfHeal or -1000000) < 800 then return end
+    if now - (Shared.lastEquipMove or -1000000) < 800 then return end
+    if backoff < 9000 then backoff = backoff + 1000 end
+    nextAt = now + baseMs() + backoff
+    setSt("Servidor pide esperar: cada " .. secTxt(baseMs() + backoff), "#ffaa44")
+  end)
+
+  -- ----- Bucle -----
+  local hue = 1
+  macro(100, function()
+    if not rc.enabled or not g_game.isOnline() then return end
+    if not rc.saved then saveOriginal() end      -- encendido antes de loguear
+
+    local anyPart = false
+    for _, k in ipairs(PARTS) do if rc[k] then anyPart = true end end
+    if not anyPart then setSt("Marca alguna parte en Config", "#ffaa44"); return end
+
+    if rc.pausePk and not Shared.inPz() and #Shared.pkList() > 0 then
+      setSt("Pausa: PK en pantalla", "#ffaa44"); return
+    end
+    -- no mezclar con un cambio de set en curso (EquipCore)
+    if now - (Shared.lastEquipMove or -1000000) < 1500 then
+      setSt("Esperando cambio de equipo...", "#ffcc66"); return
+    end
+    if now < nextAt then return end
+    nextAt = now + baseMs() + backoff
+
+    local tone = math.max(0, math.min(6, rc.tone or 4))
+    local cols, i = {}, 0
+    for _, k in ipairs(PARTS) do
+      if rc[k] then
+        if rc.mode == "random" then
+          cols[k] = colorOf(tone, math.random(1, HUES))
+        elseif rc.mode == "steps" then
+          cols[k] = colorOf(tone, hue + i * 3)
+        else
+          cols[k] = colorOf(tone, hue)
+        end
+        i = i + 1
+      end
+    end
+    hue = (hue % HUES) + 1
+
+    if sendColors(cols) then
+      if backoff == 0 then
+        setSt("Activo (" .. (MODE_TXT[rc.mode] or "") .. ", cada "
+              .. secTxt(baseMs()) .. ")", "#66ff66")
+      end
+    else
+      setSt("No se pudo cambiar el outfit", "#ff6666")
+    end
   end)
 end
 endSection(__sec)
